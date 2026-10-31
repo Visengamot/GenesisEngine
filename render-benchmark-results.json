@@ -1,8 +1,8 @@
 {
   "mode": "--benchmark-render",
   "completed": true,
-  "startedUtc": "2026-10-31T18:41:50.2100887+00:00",
-  "finishedUtc": "2026-10-31T18:42:32.6011101+00:00",
+  "startedUtc": "2026-10-31T18:48:07.9807858+00:00",
+  "finishedUtc": "2026-10-31T18:48:20.3264056+00:00",
   "runtime": ".NET 8.0.24",
   "os": "Microsoft Windows 10.0.19045",
   "architecture": "X64",
@@ -33,37 +33,37 @@
         "measured": 120
       },
       "stepMs": {
-        "mean": 2.5808433333333336,
-        "p95": 4.571,
-        "max": 19.4491
+        "mean": 4.333349166666668,
+        "p95": 9.7233,
+        "max": 28.0794
       },
       "drawIncludingEndDrawingMs": {
-        "mean": 50.861540000000005,
-        "p95": 62.3094,
-        "max": 87.1648
+        "mean": 9.579225,
+        "p95": 46.9465,
+        "max": 72.1206
       },
       "endDrawingMs": {
-        "mean": 0.24589333333333327,
-        "p95": 0.3461,
-        "max": 0.8428
+        "mean": 0.29160249999999993,
+        "p95": 0.4505,
+        "max": 2.5735
       },
       "frameMs": {
-        "mean": 53.446372500000024,
-        "p95": 68.9642,
-        "max": 89.5534
+        "mean": 13.916619166666665,
+        "p95": 49.5921,
+        "max": 74.4232
       },
-      "meanThroughputFps": 18.710343718837038,
+      "meanThroughputFps": 71.85653268397381,
       "managedAllocationBytes": {
         "scope": "Current render/simulation thread, each measured frame; excludes sample storage and scenario setup",
-        "total": 5001040,
+        "total": 5040128,
         "perFrame": {
-          "mean": 41675.333333333336,
-          "p95": 34336,
-          "max": 262840
+          "mean": 42001.066666666666,
+          "p95": 34648,
+          "max": 263152
         }
       },
       "gcCollections": [
-        2,
+        1,
         0,
         0
       ],
@@ -97,37 +97,37 @@
         "measured": 120
       },
       "stepMs": {
-        "mean": 4.103792500000001,
-        "p95": 6.0272,
-        "max": 22.6079
+        "mean": 4.575518333333332,
+        "p95": 6.4485,
+        "max": 21.6024
       },
       "drawIncludingEndDrawingMs": {
-        "mean": 63.059120833333324,
-        "p95": 78.8282,
-        "max": 132.2311
+        "mean": 12.081731666666665,
+        "p95": 53.6225,
+        "max": 65.7658
       },
       "endDrawingMs": {
-        "mean": 0.24037749999999997,
-        "p95": 0.3968,
-        "max": 0.7881
+        "mean": 0.26074416666666667,
+        "p95": 0.4162,
+        "max": 0.6983
       },
       "frameMs": {
-        "mean": 67.16662249999999,
-        "p95": 84.1775,
-        "max": 137.2058
+        "mean": 16.661264166666662,
+        "p95": 57.8881,
+        "max": 70.0134
       },
-      "meanThroughputFps": 14.888347259086906,
+      "meanThroughputFps": 60.019455306437564,
       "managedAllocationBytes": {
         "scope": "Current render/simulation thread, each measured frame; excludes sample storage and scenario setup",
-        "total": 17439600,
+        "total": 17475216,
         "perFrame": {
-          "mean": 145330,
-          "p95": 130512,
-          "max": 622848
+          "mean": 145626.8,
+          "p95": 131704,
+          "max": 622680
         }
       },
       "gcCollections": [
-        7,
+        6,
         0,
         0
       ],
@@ -161,39 +161,39 @@
         "measured": 120
       },
       "stepMs": {
-        "mean": 20.843051666666664,
-        "p95": 23.0966,
-        "max": 179.9665
+        "mean": 18.1643675,
+        "p95": 20.3234,
+        "max": 168.8518
       },
       "drawIncludingEndDrawingMs": {
-        "mean": 132.08706416666672,
-        "p95": 171.4796,
-        "max": 196.2144
+        "mean": 22.808622500000002,
+        "p95": 58.38,
+        "max": 65.811
       },
       "endDrawingMs": {
-        "mean": 0.27776249999999997,
-        "p95": 0.4126,
-        "max": 0.6075
+        "mean": 0.2687633333333333,
+        "p95": 0.3882,
+        "max": 4.5929
       },
       "frameMs": {
-        "mean": 152.9344566666667,
-        "p95": 201.6121,
-        "max": 319.6294
+        "mean": 40.97657166666667,
+        "p95": 75.0821,
+        "max": 182.999
       },
-      "meanThroughputFps": 6.538748832642617,
+      "meanThroughputFps": 24.40418901158276,
       "managedAllocationBytes": {
         "scope": "Current render/simulation thread, each measured frame; excludes sample storage and scenario setup",
-        "total": 73335944,
+        "total": 73371504,
         "perFrame": {
-          "mean": 611132.8666666667,
-          "p95": 545504,
-          "max": 2659368
+          "mean": 611429.2,
+          "p95": 546696,
+          "max": 2660944
         }
       },
       "gcCollections": [
-        19,
-        2,
-        2
+        16,
+        1,
+        1
       ],
       "screen": {
         "width": 1480,

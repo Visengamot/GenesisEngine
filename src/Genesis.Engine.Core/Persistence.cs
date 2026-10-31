@@ -90,6 +90,8 @@ public sealed partial class Simulation
             if (a is null || a.Traits?.Length != 7 || a.Brain is null || a.Generation < 0 || a.OffspringCount < 0) throw new ArgumentException("Invalid agent snapshot.");
             Range(a.Energy, 0, 3); Range(a.Age, 0, MaximumAge + 1); Guard.Position(a.Heading, nameof(a.Heading));
             float[] g = a.Traits;
+            Range(g[0], .1f, 3); Range(g[1], .25f, 3); Range(g[2], 1, 12); Range(g[3], .1f, 3);
+            Range(g[4], 0, 1); Range(g[5], 0, 1); Range(g[6], 0, 1);
             var genome = new Genome(g[0], g[1], g[2], g[3], g[4], g[5], g[6]);
             sim.Agents.Add(new(a.Id, a.Position, genome, new NeuralNetwork(a.Brain)) { Energy = a.Energy, Age = a.Age, Generation = a.Generation, OffspringCount = a.OffspringCount, Heading = a.Heading });
         }

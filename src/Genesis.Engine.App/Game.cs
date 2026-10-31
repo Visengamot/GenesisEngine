@@ -107,7 +107,10 @@ internal static class Game
                     {
                         bool single = tool is GodTool.People or GodTool.Predator;
                         if (single ? Raylib.IsMouseButtonPressed(MouseButton.Left) : Raylib.IsMouseButtonDown(MouseButton.Left))
+                        {
                             simulation.ApplyTool(tool, point, radius, single ? 1 : elapsed * 2);
+                            WorldRenderer.InvalidateTerrain();
+                        }
                     }
                 }
                 benchmark?.BeginStep();
@@ -122,7 +125,7 @@ internal static class Game
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(new Color(16, 23, 28, 255));
                 Raylib.BeginScissorMode((int)mapArea.X, (int)mapArea.Y, (int)mapArea.Width, (int)mapArea.Height);
-                WorldRenderer.Draw(simulation, origin, cell, selectedId);
+                WorldRenderer.Draw(simulation, origin, cell, selectedId, mapArea);
                 if (showTerritories) WorldRenderer.DrawTerritories(simulation, origin, cell);
                 if (inside && tool != GodTool.Inspect)
                 {
@@ -193,7 +196,7 @@ internal static class Game
             benchmark?.Save();
             return benchmark != null && !benchmark.IsComplete ? 2 : 0;
         }
-        finally { Raylib.UnloadFont(font); Raylib.CloseWindow(); }
+        finally { WorldRenderer.Unload(); Raylib.UnloadFont(font); Raylib.CloseWindow(); }
     }
     static float Distance(Vec2 a, Vec2 b) => MathF.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
     internal static void Text(string text, float x, float y, float size, Color color) => Raylib.DrawTextEx(font, text, new Vector2(x, y), size, .3f, color);

@@ -6,11 +6,83 @@ namespace Genesis.Engine.App;
 
 internal static class WorldRenderer
 {
-    public static void Draw(Simulation world, Vector2 origin, float cell, int selectedId)
+    // Only the presentation is cached; simulation fields continue updating each tick.
+    internal const int TerrainRefreshTicks = 6;
+    static RenderTexture2D terrainTexture;
+    static Simulation? cachedWorld;
+    static long cachedTick = -1;
+    static Vector2 cachedOrigin;
+    static float cachedCell;
+    static Rectangle cachedViewport;
+    static bool terrainDirty = true;
+
+    public static void InvalidateTerrain() => terrainDirty = true;
+
+    public static void Unload()
+    {
+        if (terrainTexture.Id != 0) Raylib.UnloadRenderTexture(terrainTexture);
+        terrainTexture = default;
+        cachedWorld = null;
+        terrainDirty = true;
+        AgentSpriteAtlas.Unload();
+    }
+
+    public static void Draw(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport)
+    {
+        if (cell <= 0 || viewport.Width <= 0 || viewport.Height <= 0) return;
+        int left = Math.Clamp((int)MathF.Floor((viewport.X - origin.X) / cell) - 2, 0, world.Terrain.Width);
+        int top = Math.Clamp((int)MathF.Floor((viewport.Y - origin.Y) / cell) - 2, 0, world.Terrain.Height);
+        int right = Math.Clamp((int)MathF.Ceiling((viewport.X + viewport.Width - origin.X) / cell) + 2, 0, world.Terrain.Width);
+        int bottom = Math.Clamp((int)MathF.Ceiling((viewport.Y + viewport.Height - origin.Y) / cell) + 2, 0, world.Terrain.Height);
+        int width = (int)MathF.Ceiling(viewport.Width), height = (int)MathF.Ceiling(viewport.Height);
+        bool refresh = terrainDirty || !ReferenceEquals(cachedWorld, world) || world.Tick < cachedTick
+            || world.Tick - cachedTick >= TerrainRefreshTicks || cachedOrigin != origin || cachedCell != cell
+            || !cachedViewport.Equals(viewport);
+        // Render targets have their own pixel coordinates: never inherit the window scissor.
+        Raylib.EndScissorMode();
+        AgentSpriteAtlas.EnsureLoaded();
+        if (terrainTexture.Id == 0 || terrainTexture.Texture.Width != width || terrainTexture.Texture.Height != height)
+        {
+            if (terrainTexture.Id != 0) Raylib.UnloadRenderTexture(terrainTexture);
+            terrainTexture = Raylib.LoadRenderTexture(width, height);
+            refresh = true;
+        }
+        if (refresh)
+        {
+            Raylib.BeginTextureMode(terrainTexture);
+            Raylib.ClearBackground(Color.Blank);
+            DrawTerrain(world, origin - new Vector2(viewport.X, viewport.Y), cell, left, top, right, bottom);
+            Raylib.EndTextureMode();
+            cachedWorld = world; cachedTick = world.Tick; cachedOrigin = origin; cachedCell = cell;
+            cachedViewport = viewport; terrainDirty = false;
+        }
+        Raylib.BeginScissorMode((int)viewport.X, (int)viewport.Y, (int)viewport.Width, (int)viewport.Height);
+        Raylib.DrawTextureRec(terrainTexture.Texture, new Rectangle(0, 0, width, -height), new Vector2(viewport.X, viewport.Y), Color.White);
+        // Waves and fire are deliberately live, including while terrain is reused.
+        float time = world.Tick / 30f;
+        for (int y = top; y < bottom; y++)
+            for (int x = left; x < right; x++)
+            {
+                float px = origin.X + x * cell, py = origin.Y + y * cell;
+                if (world.Terrain.Get(x, y) < -.15f && Hash(x, y) % 5 == 0)
+                {
+                    float wave = MathF.Sin(time * 1.3f + x * .7f + y) * .12f;
+                    Rect(px + cell * .2f, py + cell * (.5f + wave), cell * .55f, Math.Max(1, cell * .08f), new Color(83, 139, 157, 180));
+                }
+                if (world.Environment.Get(x, y).Fire > .05f)
+                {
+                    Raylib.DrawCircleV(new(px + cell * .5f, py + cell * .5f), cell * .5f, new Color(222, 78, 30, 210));
+                    Raylib.DrawCircleV(new(px + cell * .45f, py + cell * (.4f + MathF.Sin(time * 9 + x) * .1f)), cell * .25f, new Color(255, 207, 71, 255));
+                }
+            }
+        DrawActors(world, origin, cell, selectedId, viewport);
+    }
+
+    static void DrawTerrain(Simulation world, Vector2 origin, float cell, int left, int top, int right, int bottom)
     {
         var time = world.Tick / 30f;
-        for (int y = 0; y < world.Terrain.Height; y++)
-            for (int x = 0; x < world.Terrain.Width; x++)
+        for (int y = top; y < bottom; y++)
+            for (int x = left; x < right; x++)
             {
                 float h = world.Terrain.Get(x, y);
                 var environment = world.Environment.Get(x, y);
@@ -27,11 +99,6 @@ internal static class WorldRenderer
                 Rect(px, py, cell + .5f, cell + .5f, color);
                 if (water)
                 {
-                    if ((Hash(x, y) % 5) == 0)
-                    {
-                        float wave = MathF.Sin(time * 1.3f + x * .7f + y) * .12f;
-                        Rect(px + cell * .2f, py + cell * (.5f + wave), cell * .55f, Math.Max(1, cell * .08f), new Color(83, 139, 157, 180));
-                    }
                     if (world.Terrain.Get(Math.Min(x + 1, world.Terrain.Width - 1), y) >= -.15f)
                         Rect(px + cell * .8f, py, cell * .2f, cell, new Color(115, 155, 134, 180));
                 }
@@ -60,15 +127,16 @@ internal static class WorldRenderer
                         Rect(px + cell * .25f, py + cell * .5f, cell * .45f, cell * .25f, new Color(157, 158, 140, 255));
                     }
                 }
-                if (environment.Fire > .05f)
-                {
-                    Raylib.DrawCircleV(new(px + cell * .5f, py + cell * .5f), cell * .5f, new Color(222, 78, 30, 210));
-                    Raylib.DrawCircleV(new(px + cell * .45f, py + cell * (.4f + MathF.Sin(time * 9 + x) * .1f)), cell * .25f, new Color(255, 207, 71, 255));
-                }
             }
+    }
+
+    static void DrawActors(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport)
+    {
+        var time = world.Tick / 30f;
         foreach (var structure in world.Structures)
         {
             float px = origin.X + structure.Position.X * cell, py = origin.Y + structure.Position.Y * cell;
+            if (!Visible(px, py, cell * 2, viewport)) continue;
             var kind = structure.Kind.ToString();
             if (kind == "Road") { Rect(px, py, cell, cell, new Color(153, 131, 89, 220)); continue; }
             if (kind == "Farm")
@@ -86,18 +154,15 @@ internal static class WorldRenderer
             float px = origin.X + (agent.Position.X + .5f) * cell, py = origin.Y + (agent.Position.Y + .5f) * cell;
             float size = Math.Clamp(agent.Genome.Size, .7f, 1.5f) * Math.Max(cell, 5);
             var shirt = new Color((int)(90 + agent.Genome.Aggression * 140), (int)(100 + agent.Genome.Sociality * 120), 170, 255);
-            Raylib.DrawEllipse((int)px, (int)(py + size * .3f), size * .4f, size * .16f, new Color(10, 25, 22, 120));
+            if (!Visible(px, py, size, viewport)) continue;
             float walk = MathF.Sin(time * 9 + agent.Id) * size * .1f;
-            Rect(px - size * .22f, py + size * .15f + walk, size * .14f, size * .3f, new Color(41, 49, 53, 255));
-            Rect(px + size * .07f, py + size * .15f - walk, size * .14f, size * .3f, new Color(41, 49, 53, 255));
-            Rect(px - size * .28f, py - size * .2f, size * .56f, size * .45f, shirt);
-            Rect(px - size * .2f, py - size * .55f, size * .4f, size * .35f, new Color(226, 186, 139, 255));
-            Rect(px - size * .22f, py - size * .59f, size * .44f, size * .12f, new Color(69, 53, 40, 255));
+            AgentSpriteAtlas.Draw(px, py, size, walk, shirt);
             if (agent.Id == selectedId) Raylib.DrawCircleLines((int)px, (int)py, size * .85f, new Color(247, 231, 153, 255));
         }
         foreach (var predator in world.Predators)
         {
             float px = origin.X + (predator.Position.X + .5f) * cell, py = origin.Y + (predator.Position.Y + .5f) * cell;
+            if (!Visible(px, py, cell, viewport)) continue;
             Rect(px - cell * .5f, py - cell * .2f, cell, cell * .45f, new Color(88, 49, 45, 255));
             Rect(px + cell * .25f, py - cell * .45f, cell * .4f, cell * .4f, new Color(139, 69, 48, 255));
             Rect(px + cell * .5f, py - cell * .35f, Math.Max(1, cell * .12f), Math.Max(1, cell * .12f), new Color(255, 200, 80, 255));
@@ -124,6 +189,10 @@ internal static class WorldRenderer
             Game.Text($"Еда {tribe.Food:0.0}  Дерево {tribe.Wood:0.0}  Камень {tribe.Stone:0.0}", center.X + 6, center.Y - 8, 11, Color.White);
         }
     }
+
+    static bool Visible(float x, float y, float radius, Rectangle viewport) =>
+        x + radius >= viewport.X && y + radius >= viewport.Y
+        && x - radius <= viewport.X + viewport.Width && y - radius <= viewport.Y + viewport.Height;
 
     static uint Hash(int x, int y) => unchecked((uint)(x * 374761393 + y * 668265263) ^ ((uint)(x * 1274126177) >> 13));
     static void Rect(float x, float y, float w, float h, Color color) => Raylib.DrawRectangleRec(new Rectangle(x, y, w, h), color);

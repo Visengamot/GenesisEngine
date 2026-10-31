@@ -35,6 +35,16 @@ public class ReplayTests
     }
 
     [Fact]
+    public void RejectsInvalidGenomeTraitsInsteadOfSilentlyClamping()
+    {
+        var save = JsonSerializer.Deserialize<WorldSave>(new Simulation(8, 8).SaveJson())!;
+        save.Agents[0].Traits[4] = 99;
+        Assert.Throws<ArgumentException>(() => Simulation.LoadJson(JsonSerializer.Serialize(save)));
+        save.Agents[0].Traits[4] = float.NaN;
+        Assert.Throws<ArgumentException>(() => Simulation.LoadJson(JsonSerializer.Serialize(save)));
+    }
+
+    [Fact]
     public void LegacySavesLoadAndMalformedReplayStateIsRejected()
     {
         var data=JsonSerializer.Deserialize<WorldSave>(new Simulation().SaveJson())!;
