@@ -2,13 +2,52 @@ namespace Genesis.Engine.Core;
 
 public sealed partial class Simulation
 {
+    // One treatment per decision, only after environmental exposure, spending stored food.
+    // The medicine cannot cure starvation or create food; it replaces some exposure damage.
+    private void TreatExposure(Tribe tribe, Agent[] members, float elapsed)
+    {
+        if (!tribe.HasMedicine || tribe.Food < .04f) return;
+        foreach (var member in members.OrderBy(a => a.Id))
+        {
+            var cell = Environment.Get((int)member.Position.X, (int)member.Position.Y);
+            if (cell.Fire < .05f && Math.Abs(cell.Temperature - 22) <= 37) continue;
+            if (member.Energy <= 0 || member.Energy >= 3) continue;
+            float treatment = Math.Min(.03f * Math.Min(elapsed, 1), 3 - member.Energy);
+            if (treatment <= 0) continue;
+            tribe.Food -= .04f;
+            member.Energy += treatment;
+            return;
+        }
+    }
+
+    // Maintain at most one paid tile of a firebreak beside a hut each decision.
+    // Clearing fuel does not extinguish existing fire and the removed biomass is not harvested.
+    private void MaintainFirebreak(Tribe tribe, float elapsed)
+    {
+        if (!tribe.HasFireproofing || tribe.Stone < .02f || elapsed <= 0) return;
+        var hut = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut);
+        if (hut is null) return;
+        int hx = (int)hut.Position.X, hy = (int)hut.Position.Y;
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++)
+            {
+                int x = hx + dx, y = hy + dy;
+                if (x < 0 || x >= Environment.Width || y < 0 || y >= Environment.Height) continue;
+                var cell = Environment.Get(x, y);
+                if (cell.Fire >= .05f || (cell.Wood <= .01f && cell.Vegetation <= .01f)) continue;
+                tribe.Stone -= .02f;
+                Environment.Set(x, y, cell with { Wood = Math.Max(0, cell.Wood - .25f), Vegetation = Math.Max(0, cell.Vegetation - .25f) });
+                return;
+            }
+    }
+
     // Rule-based contact defense: one living hunter attacks once per decision, not a center aura.
     // Technology is permanent; each strike consumes replacement wood/stone and hunter stamina.
     private void HuntPredators(Tribe tribe, Agent[] members, float elapsed)
     {
         if (!tribe.HasWeapons) return;
         float effort = Math.Min(elapsed, 1);
-        float woodCost = .01f * effort, stoneCost = .02f * effort;
+        float woodCost = .01f * effort, stoneCost = (tribe.HasToolmaking ? .01f : .02f) * effort;
         if (tribe.Wood < woodCost || tribe.Stone < stoneCost) return;
         foreach (var hunter in members.OrderBy(a => a.Id))
         {

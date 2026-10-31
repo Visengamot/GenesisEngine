@@ -16,6 +16,9 @@ public sealed class Tribe
     public float Food { get; internal set; }
     public bool HasWeapons { get; internal set; }
     public bool HasFarming { get; internal set; }
+    public bool HasToolmaking { get; internal set; }
+    public bool HasMedicine { get; internal set; }
+    public bool HasFireproofing { get; internal set; }
     public float Age { get; internal set; }
 }
 
@@ -75,6 +78,14 @@ public sealed partial class Simulation
             }
             if (!t.HasFarming && t.Age >= 10 && t.Wood >= .5f && t.Food >= .1f) { t.Wood -= .5f; t.Food -= .1f; t.HasFarming = true; RecordEvent($"Племя {t.Id} освоило земледелие."); }
             if (!t.HasWeapons && t.Age >= 15 && t.Wood >= .3f && t.Stone >= .5f) { t.Wood -= .3f; t.Stone -= .5f; t.HasWeapons = true; RecordEvent($"Племя {t.Id} освоило оружие."); }
+            // Explicit prerequisites, elapsed time and one-time material investment; the effects below
+            // still require recurring stock rather than producing resources or permanent protection.
+            if (!t.HasToolmaking && t.HasWeapons && t.Age >= 20 && t.Wood >= .4f && t.Stone >= .6f)
+            { t.Wood -= .4f; t.Stone -= .6f; t.HasToolmaking = true; RecordEvent($"Племя {t.Id} освоило изготовление орудий."); }
+            if (!t.HasMedicine && t.HasFarming && t.Age >= 25 && t.Wood >= .3f && t.Food >= .6f)
+            { t.Wood -= .3f; t.Food -= .6f; t.HasMedicine = true; RecordEvent($"Племя {t.Id} освоило лечение."); }
+            if (!t.HasFireproofing && t.HasToolmaking && t.Age >= 30 && t.Stone >= .8f && t.Wood >= .2f)
+            { t.Stone -= .8f; t.Wood -= .2f; t.HasFireproofing = true; RecordEvent($"Племя {t.Id} освоило противопожарные просеки."); }
             Build(t, StructureKind.Hut, .6f, .2f, true);
             Build(t, StructureKind.Farm, .5f, .1f, t.HasFarming);
             BuildRoad(t);
@@ -87,6 +98,8 @@ public sealed partial class Simulation
                     { float meal = Math.Min(Math.Max(0, t.Food - .15f), .02f * elapsed); t.Food -= meal; a.Energy = Math.Min(3, a.Energy + meal); }
                 // Roads connect buildings by obstacle-aware routes; no free energy bonus.
             }
+            TreatExposure(t, members, elapsed);
+            MaintainFirebreak(t, elapsed);
             HuntPredators(t, members, elapsed);
         }
         var previousRelations = relations.ToArray();

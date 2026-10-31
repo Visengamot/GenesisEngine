@@ -187,6 +187,15 @@ internal static class WorldRenderer
             Raylib.DrawCircleLines((int)center.X, (int)center.Y, 10 * cell, color);
             Game.Text($"Племя {tribe.Id} · {tribe.MemberIds.Count}", center.X + 6, center.Y - 26, 14, Color.White);
             Game.Text($"Еда {tribe.Food:0.0}  Дерево {tribe.Wood:0.0}  Камень {tribe.Stone:0.0}", center.X + 6, center.Y - 8, 11, Color.White);
+            string technologies = string.Join(" · ", new[]
+            {
+                tribe.HasFarming ? "фермы" : null,
+                tribe.HasWeapons ? "оружие" : null,
+                tribe.HasToolmaking ? "орудия" : null,
+                tribe.HasMedicine ? "лечение" : null,
+                tribe.HasFireproofing ? "просеки" : null
+            }.Where(value => value != null));
+            if (technologies.Length > 0) Game.Text(technologies, center.X + 6, center.Y + 9, 11, Color.White);
         }
     }
 

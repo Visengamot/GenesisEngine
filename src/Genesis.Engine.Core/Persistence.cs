@@ -13,7 +13,7 @@ public sealed partial class Simulation
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 2,
+            Version = 3,
             RandomState = random.State,
             Events = events.ToArray(),
             Width = Terrain.Width,
@@ -50,7 +50,10 @@ public sealed partial class Simulation
                 Food = t.Food,
                 Age = t.Age,
                 HasWeapons = t.HasWeapons,
-                HasFarming = t.HasFarming
+                HasFarming = t.HasFarming,
+                HasToolmaking = t.HasToolmaking,
+                HasMedicine = t.HasMedicine,
+                HasFireproofing = t.HasFireproofing
             }).ToArray(),
             Structures = structures.ToArray(),
             Relations = relations.ToArray()
@@ -66,8 +69,8 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
-        if (d.Version == 2 && (d.RandomState is null || d.Events is null || d.Events.Length > 64 || d.Events.Any(e => e is null || e.Length > 2048)))
+        if (d.Version is not (1 or 2 or 3)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version >= 2 && (d.RandomState is null || d.Events is null || d.Events.Length > 64 || d.Events.Any(e => e is null || e.Length > 2048)))
             throw new ArgumentException("Invalid random state or journal.");
         if (d.Width <= 0 || d.Height <= 0 || (long)d.Width * d.Height > 1_000_000) throw new ArgumentException("Invalid snapshot dimensions.");
         int count = d.Width * d.Height;
@@ -103,7 +106,9 @@ public sealed partial class Simulation
         {
             if (t is null || t.Id < 0 || !tribeIds.Add(t.Id) || t.Members is null || t.Members.Length > MaximumPopulation || t.Members.Any(id => !ids.Contains(id) || !memberIds.Add(id))) throw new ArgumentException("Invalid tribe membership.");
             Position(t.Center); Range(t.Wood, 0, 100); Range(t.Stone, 0, 100); Range(t.Food, 0, 100); Range(t.Age, 0, float.MaxValue);
-            var tribe = new Tribe { Id = t.Id, Center = t.Center, Wood = t.Wood, Stone = t.Stone, Food = t.Food, Age = t.Age, HasWeapons = t.HasWeapons, HasFarming = t.HasFarming };
+            var tribe = new Tribe { Id = t.Id, Center = t.Center, Wood = t.Wood, Stone = t.Stone, Food = t.Food, Age = t.Age, HasWeapons = t.HasWeapons, HasFarming = t.HasFarming,
+                HasToolmaking = d.Version >= 3 && t.HasToolmaking, HasMedicine = d.Version >= 3 && t.HasMedicine,
+                HasFireproofing = d.Version >= 3 && t.HasFireproofing };
             tribe.MemberIds.AddRange(t.Members); sim.tribes.Add(tribe);
             if (t.Id == int.MaxValue) throw new ArgumentException("Tribe ID exhausted.");
             sim.nextTribeId = Math.Max(sim.nextTribeId, t.Id + 1);
@@ -114,7 +119,7 @@ public sealed partial class Simulation
         { if (s is null || !Enum.IsDefined(s.Kind) || s.TribeId < 0) throw new ArgumentException("Invalid structure."); Position(s.Position); sim.structures.Add(s); }
         foreach (var r in d.Relations)
         { if (r is null || !Enum.IsDefined(r.Relation) || !tribeIds.Contains(r.FirstTribeId) || !tribeIds.Contains(r.SecondTribeId) || r.FirstTribeId == r.SecondTribeId) throw new ArgumentException("Invalid relation."); sim.relations.Add(r); }
-        if (d.Version == 2)
+        if (d.Version >= 2)
         {
             sim.random.State = d.RandomState!.Value;
             sim.events.AddRange(d.Events!);
@@ -173,4 +178,7 @@ public sealed class TribeSave
     public float Age { get; set; }
     public bool HasWeapons { get; set; }
     public bool HasFarming { get; set; }
+    public bool HasToolmaking { get; set; }
+    public bool HasMedicine { get; set; }
+    public bool HasFireproofing { get; set; }
 }
