@@ -48,6 +48,7 @@ internal static class Game
         var zoom = 1f;
         var pan = Vector2.Zero;
         var selectedId = -1;
+        var showTerritories = false;
         var notice = "Мир развивается сам. Вы меняете условия жизни.";
         var smoke = args.Contains("--smoke");
         var frames = 0;
@@ -70,6 +71,7 @@ internal static class Game
                 else radius = Math.Clamp(radius + wheel, 1, 20);
                 if (onMap && Raylib.IsMouseButtonDown(MouseButton.Middle)) pan += Raylib.GetMouseDelta();
                 if (Raylib.IsKeyPressed(KeyboardKey.Space)) paused = !paused;
+                if (Raylib.IsKeyPressed(KeyboardKey.T)) showTerritories = !showTerritories;
                 if (Raylib.IsKeyPressed(KeyboardKey.One)) speed = 1;
                 if (Raylib.IsKeyPressed(KeyboardKey.Two)) speed = 2;
                 if (Raylib.IsKeyPressed(KeyboardKey.Three)) speed = 4;
@@ -110,6 +112,7 @@ internal static class Game
                 Raylib.ClearBackground(new Color(16, 23, 28, 255));
                 Raylib.BeginScissorMode((int)mapArea.X, (int)mapArea.Y, (int)mapArea.Width, (int)mapArea.Height);
                 WorldRenderer.Draw(simulation, origin, cell, selectedId);
+                if (showTerritories) WorldRenderer.DrawTerritories(simulation, origin, cell);
                 if (inside && tool != GodTool.Inspect)
                 {
                     Raylib.DrawCircleLines((int)mouse.X, (int)mouse.Y, radius * cell, new Color(220, 240, 200, 220));
@@ -136,7 +139,7 @@ internal static class Game
                 Wrap(chosen.Hint, 20, 464, 260, 15, Muted);
                 Text($"Радиус кисти: {radius:0}", 20, 510, 16, Ink);
                 Text("Колесо — кисть • Ctrl+колесо — масштаб", 20, 538, 12, Muted);
-                Text("Средняя кнопка — перемещение карты", 20, 557, 12, Muted);
+                Text("Средняя кнопка — карта • T — племена", 20, 557, 12, Muted);
                 var selected = simulation.Agents.FirstOrDefault(a => a.Id == selectedId);
                 if (selected != null)
                 {

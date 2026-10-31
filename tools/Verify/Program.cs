@@ -11,5 +11,6 @@ foreach (var method in type.GetMethods().Where(m => m.GetCustomAttributes().Any(
     try { method.Invoke(Activator.CreateInstance(type), null); passed++; Console.WriteLine($"PASS {type.Name}.{method.Name}"); }
     catch (TargetInvocationException exception) { Console.Error.WriteLine(exception.InnerException); return 1; }
 }
-Console.WriteLine($"Passed {passed} Facts (direct runner; not VSTest).");
+var theories = assembly.GetTypes().SelectMany(t => t.GetMethods()).Count(m => m.GetCustomAttributes().Any(a => a.GetType().Name == "TheoryAttribute"));
+Console.WriteLine($"Passed {passed} Facts (direct runner; not VSTest). Skipped {theories} Theory methods: run dotnet test for the complete suite.");
 return passed > 0 ? 0 : 1;

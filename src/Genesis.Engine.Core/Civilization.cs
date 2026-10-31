@@ -87,9 +87,9 @@ public sealed partial class Simulation
                     { float meal = Math.Min(Math.Max(0, t.Food - .15f), .02f * elapsed); t.Food -= meal; a.Energy = Math.Min(3, a.Energy + meal); }
                 // Roads connect buildings by obstacle-aware routes; no free energy bonus.
             }
-            if (t.HasWeapons)
-                foreach (var p in predators.Where(p => DistanceSquared(p.Position, t.Center) < 16)) p.Energy = Math.Max(0, p.Energy - .08f * elapsed);
+            HuntPredators(t, members, elapsed);
         }
+        var previousRelations = relations.ToArray();
         relations.Clear();
         for (int i = 0; i < tribes.Count; i++)
             for (int j = i + 1; j < tribes.Count; j++)
@@ -98,8 +98,8 @@ public sealed partial class Simulation
                 float aggression = (a.MemberIds.Average(id => available[id].Genome.Aggression) + b.MemberIds.Average(id => available[id].Genome.Aggression)) / 2;
                 var relation = DistanceSquared(a.Center, b.Center) > 400 ? TribalRelation.Neutral : aggression > .65f ? TribalRelation.War : aggression < .4f ? TribalRelation.Alliance : TribalRelation.Neutral;
                 relations.Add(new(a.Id, b.Id, relation));
-                if (relation == TribalRelation.Alliance)
-                { float transfer = Math.Clamp((a.Food - b.Food) * .1f * elapsed, -b.Food, a.Food); a.Food -= transfer; b.Food += transfer; }
+                JournalRelation(a, b, relation, previousRelations);
+                if (relation == TribalRelation.Alliance) TradeAlongRoad(a, b, elapsed);
                 if (relation == TribalRelation.War)
                 {
                     // Explicit proximity attrition, not tactical combat or diplomacy.

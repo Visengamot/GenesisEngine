@@ -134,9 +134,12 @@ public sealed partial class Simulation
             var c = Environment.Get((int)a.Position.X, (int)a.Position.Y);
             a.Energy = Math.Clamp(a.Energy - dt * (c.Fire * .7f + Math.Max(0, Math.Abs(c.Temperature - 22) - 15) * .0015f), 0, 3);
         }
+        // Reconcile public mutable Agents at the phase boundary; predicates read live energy
+        // so a prey killed by an earlier predator is not selected again.
+        if (predators.Count > 0) agentStore.Rebuild(Agents);
         foreach (var p in predators)
         {
-            var prey = Agents.Where(a => a.Energy > 0).MinBy(a => DistanceSquared(a.Position, p.Position));
+            var prey = agentStore.Nearest(p.Position, a => a.Energy > 0);
             p.Energy = Math.Max(0, p.Energy - dt * .025f);
             if (prey is null) continue;
             float distance = MathF.Sqrt(DistanceSquared(prey.Position, p.Position));

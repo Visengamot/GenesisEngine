@@ -235,6 +235,8 @@ public sealed partial class Simulation
     public FoodMap Food { get; }
     // Retained for App compatibility. External additions are validated before stepping.
     public List<Agent> Agents { get; } = new();
+    private readonly AgentStore agentStore = new();
+    public SimulationDiagnostics Diagnostics => new(Tick, Agents.Count, agentStore.BucketCount, agentStore.CandidateChecks);
     public long Tick { get; private set; }
     internal readonly Random random;
     internal long nextId;
@@ -272,16 +274,19 @@ public sealed partial class Simulation
         Tick = checked(Tick + 1);
         Food.Renew(dt, Terrain);
         StepEnvironment(dt);
+        Span<float> inputs = stackalloc float[Agent.SensorCount];
+        Span<float> output = stackalloc float[2];
+        Span<float> scratch = stackalloc float[Agent.SensorCount + 2 + 128];
         foreach (var agent in Agents)
         {
             if (agent.Energy <= 0 || agent.Age >= MaximumAge) continue;
             agent.Age += dt;
-            float[] inputs = Sense(agent);
+            Sense(agent, inputs);
             // Public sensor slots preserve their original meaning; the controller receives centered levels.
             for (int i = 0; i < 4; i++) inputs[i] -= .5f;
             inputs[8] = inputs[8] * 2 - 1;
             inputs[9] = inputs[9] * 2 - 1;
-            float[] output = agent.Brain.Evaluate(inputs);
+            agent.Brain.Evaluate(inputs, output, scratch);
             var steering = new Vec2(output[0], output[1]);
             float persistence = Math.Clamp(1 - dt * 1.4f, 0, 1);
             var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
@@ -308,15 +313,22 @@ public sealed partial class Simulation
     /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
     public float[] Sense(Agent agent)
     {
+        var inputs = new float[Agent.SensorCount];
+        Sense(agent, inputs);
+        return inputs;
+    }
+
+    public void Sense(Agent agent, Span<float> inputs)
+    {
+        if (inputs.Length < Agent.SensorCount) throw new ArgumentException("Sensor buffer is too small.", nameof(inputs));
         ArgumentNullException.ThrowIfNull(agent);
         Guard.Position(agent.Position, nameof(agent));
         agent.Genome.Validate();
         Guard.Finite(agent.Energy, nameof(agent));
-        var inputs = new float[Agent.SensorCount];
         Vec2 p = Clamp(agent.Position);
         int x = (int)p.X, y = (int)p.Y;
         int distance = Math.Max(1, (int)agent.Genome.Vision);
-        (int X, int Y)[] directions = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+        ReadOnlySpan<(int X, int Y)> directions = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         for (int i = 0; i < directions.Length; i++)
         {
             int sx = x + directions[i].X * distance;
@@ -329,7 +341,6 @@ public sealed partial class Simulation
         inputs[9] = Food.Get(x, y);
         inputs[10] = (float)Math.Sin(agent.Age + agent.Id) * agent.Genome.Curiosity;
         inputs[11] = 1;
-        return inputs;
     }
 
     private void ValidateAgents()

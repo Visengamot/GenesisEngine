@@ -103,6 +103,28 @@ internal static class WorldRenderer
             Rect(px + cell * .5f, py - cell * .35f, Math.Max(1, cell * .12f), Math.Max(1, cell * .12f), new Color(255, 200, 80, 255));
         }
     }
+    public static void DrawTerritories(Simulation world, Vector2 origin, float cell)
+    {
+        foreach (var relation in world.Relations)
+        {
+            var first = world.Tribes.FirstOrDefault(t => t.Id == relation.FirstTribeId);
+            var second = world.Tribes.FirstOrDefault(t => t.Id == relation.SecondTribeId);
+            if (first is null || second is null || relation.Relation == TribalRelation.Neutral) continue;
+            var color = relation.Relation == TribalRelation.War ? new Color(235, 92, 76, 170) : new Color(109, 210, 197, 160);
+            Raylib.DrawLineEx(origin + new Vector2(first.Center.X, first.Center.Y) * cell,
+                origin + new Vector2(second.Center.X, second.Center.Y) * cell, 2, color);
+        }
+        foreach (var tribe in world.Tribes)
+        {
+            var center = origin + new Vector2(tribe.Center.X, tribe.Center.Y) * cell;
+            var color = new Color(100 + (tribe.Id * 47 % 140), 140 + (tribe.Id * 31 % 100), 120 + (tribe.Id * 19 % 120), 180);
+            // Influence radius is informational, not exclusive ownership of terrain.
+            Raylib.DrawCircleLines((int)center.X, (int)center.Y, 10 * cell, color);
+            Game.Text($"Племя {tribe.Id} · {tribe.MemberIds.Count}", center.X + 6, center.Y - 26, 14, Color.White);
+            Game.Text($"Еда {tribe.Food:0.0}  Дерево {tribe.Wood:0.0}  Камень {tribe.Stone:0.0}", center.X + 6, center.Y - 8, 11, Color.White);
+        }
+    }
+
     static uint Hash(int x, int y) => unchecked((uint)(x * 374761393 + y * 668265263) ^ ((uint)(x * 1274126177) >> 13));
     static void Rect(float x, float y, float w, float h, Color color) => Raylib.DrawRectangleRec(new Rectangle(x, y, w, h), color);
 }
