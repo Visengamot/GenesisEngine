@@ -7,57 +7,101 @@ namespace Genesis.Engine.App;
 internal static class WorldRenderer
 {
     // Only the presentation is cached; simulation fields continue updating each tick.
+    // Each band refreshes once per six simulation ticks; live waves, fire and actors remain uncached.
     internal const int TerrainRefreshTicks = 6;
-    static RenderTexture2D terrainTexture;
+    static readonly RenderTexture2D[] terrainBands = new RenderTexture2D[TerrainRefreshTicks];
     static Simulation? cachedWorld;
     static long cachedTick = -1;
     static Vector2 cachedOrigin;
     static float cachedCell;
     static Rectangle cachedViewport;
     static bool terrainDirty = true;
+    static int nextBand;
+
+    // Per-Draw diagnostic: lets native benchmarks separate cache refresh from reuse.
+    internal static bool LastTerrainRefresh { get; private set; }
+    internal static int LastTerrainRefreshBands { get; private set; }
 
     public static void InvalidateTerrain() => terrainDirty = true;
 
     public static void Unload()
     {
-        if (terrainTexture.Id != 0) Raylib.UnloadRenderTexture(terrainTexture);
-        terrainTexture = default;
+        for (int band = 0; band < terrainBands.Length; band++)
+        {
+            if (terrainBands[band].Id != 0) Raylib.UnloadRenderTexture(terrainBands[band]);
+            terrainBands[band] = default;
+        }
         cachedWorld = null;
+        cachedTick = -1;
+        nextBand = 0;
         terrainDirty = true;
+        LastTerrainRefresh = false;
+        LastTerrainRefreshBands = 0;
         AgentSpriteAtlas.Unload();
     }
 
     public static void Draw(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport)
     {
+        LastTerrainRefresh = false;
+        LastTerrainRefreshBands = 0;
         if (cell <= 0 || viewport.Width <= 0 || viewport.Height <= 0) return;
         int left = Math.Clamp((int)MathF.Floor((viewport.X - origin.X) / cell) - 2, 0, world.Terrain.Width);
         int top = Math.Clamp((int)MathF.Floor((viewport.Y - origin.Y) / cell) - 2, 0, world.Terrain.Height);
         int right = Math.Clamp((int)MathF.Ceiling((viewport.X + viewport.Width - origin.X) / cell) + 2, 0, world.Terrain.Width);
         int bottom = Math.Clamp((int)MathF.Ceiling((viewport.Y + viewport.Height - origin.Y) / cell) + 2, 0, world.Terrain.Height);
         int width = (int)MathF.Ceiling(viewport.Width), height = (int)MathF.Ceiling(viewport.Height);
-        bool refresh = terrainDirty || !ReferenceEquals(cachedWorld, world) || world.Tick < cachedTick
-            || world.Tick - cachedTick >= TerrainRefreshTicks || cachedOrigin != origin || cachedCell != cell
-            || !cachedViewport.Equals(viewport);
+        bool refreshAll = terrainDirty || !ReferenceEquals(cachedWorld, world) || world.Tick < cachedTick
+            || cachedOrigin != origin || cachedCell != cell || !cachedViewport.Equals(viewport);
         // Render targets have their own pixel coordinates: never inherit the window scissor.
         Raylib.EndScissorMode();
         AgentSpriteAtlas.EnsureLoaded();
-        if (terrainTexture.Id == 0 || terrainTexture.Texture.Width != width || terrainTexture.Texture.Height != height)
+        for (int band = 0; band < terrainBands.Length; band++)
         {
-            if (terrainTexture.Id != 0) Raylib.UnloadRenderTexture(terrainTexture);
-            terrainTexture = Raylib.LoadRenderTexture(width, height);
-            refresh = true;
+            int bandHeight = (band + 1) * height / terrainBands.Length - band * height / terrainBands.Length;
+            if (bandHeight == 0) continue;
+            if (terrainBands[band].Id == 0 || terrainBands[band].Texture.Width != width || terrainBands[band].Texture.Height != bandHeight)
+            {
+                if (terrainBands[band].Id != 0) Raylib.UnloadRenderTexture(terrainBands[band]);
+                terrainBands[band] = Raylib.LoadRenderTexture(width, bandHeight);
+                refreshAll = true;
+            }
         }
-        if (refresh)
+        // Brush, camera, viewport and world changes refresh every band immediately.
+        // Otherwise refresh one band for each new simulation tick, not every display frame.
+        bool refreshOne = !refreshAll && world.Tick != cachedTick;
+        for (int band = 0; band < terrainBands.Length; band++)
         {
-            Raylib.BeginTextureMode(terrainTexture);
+            int bandY = band * height / terrainBands.Length;
+            int bandHeight = (band + 1) * height / terrainBands.Length - bandY;
+            if (bandHeight == 0 || (!refreshAll && (!refreshOne || band != nextBand))) continue;
+            Raylib.BeginTextureMode(terrainBands[band]);
             Raylib.ClearBackground(Color.Blank);
-            DrawTerrain(world, origin - new Vector2(viewport.X, viewport.Y), cell, left, top, right, bottom);
+            // Overscan above the strip lets trees and half-pixel tile overlaps cross its upper edge.
+            // Target-local clipping prevents adjacent textures from painting the same output pixel.
+            Raylib.BeginScissorMode(0, 0, width, bandHeight);
+            int bandTop = Math.Clamp((int)MathF.Floor((viewport.Y + bandY - origin.Y) / cell) - 2, 0, world.Terrain.Height);
+            int bandBottom = Math.Clamp((int)MathF.Ceiling((viewport.Y + bandY + bandHeight - origin.Y) / cell) + 2, 0, world.Terrain.Height);
+            DrawTerrain(world, origin - new Vector2(viewport.X, viewport.Y + bandY), cell, left, bandTop, right, bandBottom);
+            Raylib.EndScissorMode();
             Raylib.EndTextureMode();
+            LastTerrainRefreshBands++;
+        }
+        LastTerrainRefresh = LastTerrainRefreshBands != 0;
+        if (refreshAll || refreshOne)
+        {
             cachedWorld = world; cachedTick = world.Tick; cachedOrigin = origin; cachedCell = cell;
             cachedViewport = viewport; terrainDirty = false;
+            nextBand = refreshAll ? 0 : (nextBand + 1) % terrainBands.Length;
         }
         Raylib.BeginScissorMode((int)viewport.X, (int)viewport.Y, (int)viewport.Width, (int)viewport.Height);
-        Raylib.DrawTextureRec(terrainTexture.Texture, new Rectangle(0, 0, width, -height), new Vector2(viewport.X, viewport.Y), Color.White);
+        for (int band = 0; band < terrainBands.Length; band++)
+        {
+            if (terrainBands[band].Id == 0) continue;
+            int bandY = band * height / terrainBands.Length;
+            int bandHeight = (band + 1) * height / terrainBands.Length - bandY;
+            Raylib.DrawTextureRec(terrainBands[band].Texture, new Rectangle(0, 0, width, -bandHeight),
+                new Vector2(viewport.X, viewport.Y + bandY), Color.White);
+        }
         // Waves and fire are deliberately live, including while terrain is reused.
         float time = world.Tick / 30f;
         for (int y = top; y < bottom; y++)

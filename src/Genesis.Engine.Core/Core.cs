@@ -441,6 +441,7 @@ public sealed partial class Simulation
     private void Reproduce()
     {
         RefreshSpecies();
+        if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) return;
         var sizes = Species.ToDictionary(s => s.Id, s => s.MemberCount);
         // Online fitness sharing prioritizes rare compatible groups when local mates/capacity are scarce.
         // This is steady-state ecological selection, not generations, species quotas or full NEAT.

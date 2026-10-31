@@ -1,8 +1,8 @@
 {
   "mode": "--benchmark-natural",
   "completed": true,
-  "startedUtc": "2026-10-31T19:25:58.1496255+00:00",
-  "finishedUtc": "2026-10-31T19:26:09.5577296+00:00",
+  "startedUtc": "2026-10-31T19:34:08.6513079+00:00",
+  "finishedUtc": "2026-10-31T19:34:18.3818829+00:00",
   "runtime": ".NET 8.0.24",
   "os": "Microsoft Windows 10.0.19045",
   "architecture": "X64",
@@ -46,44 +46,64 @@
     "measured": 120
   },
   "stepMs": {
-    "mean": 4.753900833333334,
-    "min": 2.3707,
-    "p95": 7.4307,
-    "max": 11.1668
+    "mean": 3.0335708333333335,
+    "min": 2.0533,
+    "p95": 4.7038,
+    "max": 6.1779
   },
   "drawIncludingEndDrawingMs": {
-    "mean": 12.565284166666666,
-    "min": 1.9478,
-    "p95": 62.3075,
-    "max": 77.4016
+    "mean": 11.451054166666673,
+    "min": 6.2992,
+    "p95": 16.1704,
+    "max": 24.8757
   },
   "endDrawingMs": {
-    "mean": 0.25389999999999996,
-    "min": 0.1494,
-    "p95": 0.3383,
-    "max": 1.5688
+    "mean": 0.1963675,
+    "min": 0.1369,
+    "p95": 0.2796,
+    "max": 0.3392
   },
   "frameMs": {
-    "mean": 17.322984166666668,
-    "min": 4.5767,
-    "p95": 68.4742,
-    "max": 82.8494
+    "mean": 14.487616666666664,
+    "min": 8.4176,
+    "p95": 19.4015,
+    "max": 27.7968
   },
-  "meanThroughputFps": 57.72677446211753,
+  "terrainRefreshFrames": {
+    "count": 120,
+    "frameMs": {
+      "mean": 14.487616666666664,
+      "min": 8.4176,
+      "p95": 19.4015,
+      "max": 27.7968
+    },
+    "drawMs": {
+      "mean": 11.451054166666673,
+      "min": 6.2992,
+      "p95": 16.1704,
+      "max": 24.8757
+    }
+  },
+  "reusedTerrainFrames": {
+    "count": 0,
+    "frameMs": null,
+    "drawMs": null
+  },
+  "meanThroughputFps": 69.0244657218751,
   "managedAllocationBytes": {
     "scope": "Current render/simulation thread, each measured frame; excludes sample storage and prewarm",
-    "total": 11842960,
+    "total": 4941136,
     "perFrame": {
-      "mean": 98691.33333333333,
-      "min": 47704,
-      "p95": 733440,
-      "max": 735176
+      "mean": 41176.13333333333,
+      "min": 9080,
+      "p95": 377392,
+      "max": 381216
     }
   },
   "gcCollections": [
-    7,
+    2,
     1,
-    0
+    1
   ],
   "screen": {
     "width": 1480,

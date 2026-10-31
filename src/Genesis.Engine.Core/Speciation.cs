@@ -69,26 +69,46 @@ public sealed partial class Simulation
     /// in lineage-ID order, then agent-ID order; extinct lineages are discarded after each refresh.</summary>
     public void RefreshSpecies()
     {
-        if (classifiedAgents.Length == Agents.Count && classifiedAgents.Where((a, i) => !ReferenceEquals(a, Agents[i])).Any() == false)
-            return;
+        if (classifiedAgents.Length == Agents.Count)
+        {
+            int index = 0;
+            for (; index < classifiedAgents.Length; index++)
+                if (!ReferenceEquals(classifiedAgents[index], Agents[index])) break;
+            if (index == classifiedAgents.Length) return;
+        }
         // A directly replaced population must not inherit unrelated old representatives.
         // Existing members keep their own compatible lineage even if lineages overlap.
-        var survivors = Agents.ToHashSet();
-        var previousMembers = classifiedAgents.Where(survivors.Contains).ToDictionary(a => a, a => a.SpeciesId);
+        var survivors = new HashSet<Agent>(Agents);
+        var previousMembers = new Dictionary<Agent, int>();
+        var survivingIds = new HashSet<int>();
+        foreach (var agent in classifiedAgents)
+            if (survivors.Contains(agent))
+            {
+                previousMembers.Add(agent, agent.SpeciesId);
+                survivingIds.Add(agent.SpeciesId);
+            }
         if (classifiedAgents.Length != 0)
-        {
-            var survivingIds = previousMembers.Values.ToHashSet();
-            lineages.RemoveAll(l => !survivingIds.Contains(l.Id));
-        }
+            for (int i = lineages.Count - 1; i >= 0; i--)
+                if (!survivingIds.Contains(lineages[i].Id)) lineages.RemoveAt(i);
         var counts = new Dictionary<int, int>();
         foreach (var agent in Agents.OrderBy(a => a.Id))
         {
             SpeciesLineage? lineage = null;
             if (previousMembers.TryGetValue(agent, out int oldId))
-                lineage = lineages.FirstOrDefault(l => l.Id == oldId &&
-                    GeneticCompatibility.Distance(agent.Brain, l.Representative) <= SpeciesCompatibilityThreshold);
-            lineage ??= lineages.FirstOrDefault(r =>
-                GeneticCompatibility.Distance(agent.Brain, r.Representative) <= SpeciesCompatibilityThreshold);
+                foreach (var candidate in lineages)
+                    if (candidate.Id == oldId &&
+                        GeneticCompatibility.Distance(agent.Brain, candidate.Representative) <= SpeciesCompatibilityThreshold)
+                    {
+                        lineage = candidate;
+                        break;
+                    }
+            if (lineage is null)
+                foreach (var candidate in lineages)
+                    if (GeneticCompatibility.Distance(agent.Brain, candidate.Representative) <= SpeciesCompatibilityThreshold)
+                    {
+                        lineage = candidate;
+                        break;
+                    }
             if (lineage is null)
             {
                 // Preserve historical representative IDs for externally supplied agents and legacy saves.
@@ -102,8 +122,12 @@ public sealed partial class Simulation
             agent.SpeciesId = lineage.Id;
             counts[lineage.Id] = counts.GetValueOrDefault(lineage.Id) + 1;
         }
-        lineages.RemoveAll(l => !counts.ContainsKey(l.Id));
-        species = Array.AsReadOnly(lineages.Select(l => new SpeciesSummary(l.Id, counts[l.Id])).ToArray());
+        for (int i = lineages.Count - 1; i >= 0; i--)
+            if (!counts.ContainsKey(lineages[i].Id)) lineages.RemoveAt(i);
+        var summaries = new SpeciesSummary[lineages.Count];
+        for (int i = 0; i < summaries.Length; i++)
+            summaries[i] = new SpeciesSummary(lineages[i].Id, counts[lineages[i].Id]);
+        species = Array.AsReadOnly(summaries);
         classifiedAgents = Agents.ToArray();
     }
 

@@ -14,6 +14,7 @@ internal sealed class NaturalPopulationBenchmark
     private readonly DateTimeOffset started = DateTimeOffset.UtcNow;
     private readonly List<double> steps = [], draws = [], presents = [], frames = [];
     private readonly List<long> allocations = [];
+    private readonly List<double> refreshFrameMs = [], reusedFrameMs = [], refreshDrawMs = [], reusedDrawMs = [];
     private long frameStart, stepStart, drawStart, presentStart, allocatedStart, measuredTickStart;
     private double stepMs;
     private int frame, prewarmInitialPopulation, prewarmEndPopulation, prewarmMinPopulation, prewarmMaxPopulation;
@@ -68,6 +69,10 @@ internal sealed class NaturalPopulationBenchmark
         presents.Add(Milliseconds(presentStart, end));
         frames.Add(Milliseconds(frameStart, end));
         allocations.Add(allocated);
+        var frameBucket = WorldRenderer.LastTerrainRefresh ? refreshFrameMs : reusedFrameMs;
+        var drawBucket = WorldRenderer.LastTerrainRefresh ? refreshDrawMs : reusedDrawMs;
+        frameBucket.Add(frames[^1]);
+        drawBucket.Add(draws[^1]);
         populationMin = Math.Min(populationMin, simulation.Agents.Count);
         populationMax = Math.Max(populationMax, simulation.Agents.Count);
         return IsComplete;
@@ -91,6 +96,8 @@ internal sealed class NaturalPopulationBenchmark
             births = new { prewarm = birthsAtPrewarm - birthsAtStart, duringNativeWarmup = birthsAtMeasurementStart - birthsAtPrewarm, duringMeasurement = finalBirthId - birthsAtMeasurementStart, total = finalBirthId - birthsAtStart },
             simulationTicks = new { start = measuredTickStart, end = simulation.Tick, measured = simulation.Tick - measuredTickStart },
             stepMs = Summarize(steps), drawIncludingEndDrawingMs = Summarize(draws), endDrawingMs = Summarize(presents), frameMs = Summarize(frames),
+            terrainRefreshFrames = new { count = refreshFrameMs.Count, frameMs = Summarize(refreshFrameMs), drawMs = Summarize(refreshDrawMs) },
+            reusedTerrainFrames = new { count = reusedFrameMs.Count, frameMs = Summarize(reusedFrameMs), drawMs = Summarize(reusedDrawMs) },
             meanThroughputFps = frames.Count == 0 ? (double?)null : 1000 / frames.Average(),
             managedAllocationBytes = new { scope = "Current render/simulation thread, each measured frame; excludes sample storage and prewarm", total = allocations.Sum(), perFrame = Summarize(allocations.Select(x => (double)x)) },
             gcCollections = collectionsStart.Length == 3 ? Enumerable.Range(0, 3).Select(i => GC.CollectionCount(i) - collectionsStart[i]).ToArray() : [],

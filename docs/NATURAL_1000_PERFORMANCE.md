@@ -25,12 +25,10 @@ Release native run completed on Windows 10 (`.NET 8.0.24`, AMD Radeon Vega 8, 14
 | Population at creation → after 60-second prewarm → measured start/end | 80 → 1,000 → 1,000 / 1,000 |
 | Prewarm births / native warmup births / measured births | 952 / 2 / 7 |
 | Generation at measured start/end | 6 / 6 |
-| Step mean / p95 / minimum / maximum | 4.754 / 7.431 / 2.371 / 11.167 ms |
-| Full-frame mean / p95 / minimum / maximum | **17.323 / 68.474 / 4.577 / 82.849 ms** |
-| Full-frame mean throughput (`1000 / mean ms`) | **57.73 FPS** |
-| Draw including EndDrawing mean / p95 | 12.565 / 62.308 ms |
-| EndDrawing alone mean / p95 | 0.254 / 0.338 ms |
-| Managed allocation mean per measured frame | 98,691 B |
-| GC collections during measurement (generations 0 / 1 / 2) | 7 / 1 / 0 |
+| Step mean / p95 | 3.034 / 5.648 ms |
+| Full-frame mean / p95 | **14.488 / 19.402 ms** |
+| Full-frame mean throughput (`1000 / mean ms`) | **69.03 FPS** |
+| Managed allocation mean per measured frame | 41,176 B |
+| GC collections during measurement (generations 0 / 1 / 2) | 2 / 1 / 1 |
 
-**Interpretation:** Mean full-frame time of 17.32 ms exceeds the 16.67-ms 60-FPS budget; p95 of 68.47 ms indicates significant intermittent stalls. This naturally populated run does **not** demonstrate sustained 60 FPS. The earlier synthetic native benchmark injects 600, 2,000, or 10,000 agents; those results measure different workloads and should not be presented as a naturally evolved 10,000-agent world. This is a single run, not a paired before/after performance comparison.
+Earlier single-texture baseline on the same machine: **17.323 ms mean / 68.474 ms p95**, 57.73 FPS mean throughput. A separate diagnostic run with the old cache and refreshed core measured 20 full terrain-refresh frames averaging **49.49 ms**, while 100 reused-terrain frames averaged **5.94 ms**. That attribution motivated splitting the terrain texture into six bands: steady state refreshes one band per new simulation tick instead of the whole visible map every sixth tick. The current sample has 120 one-band refresh frames and **19.40 ms p95**, still above the 16.67-ms frame budget: **sustained 60 FPS is not demonstrated**. Brush/world/camera changes synchronously refresh all six bands, so those interactions can still produce a long frame. Neighboring bands may show vegetation and food from different ticks (at most five ticks apart). Smoke confirmed startup and texture cleanup, but a visual screenshot comparison of band seams was not available. This is a single unpaired before/after run, so gains are not a universal hardware guarantee. The earlier synthetic benchmark injecting 600/2,000/10,000 agents measures a different workload.
