@@ -23,7 +23,7 @@ public class EvolutionTests
             Assert.Equal(a.Agents[i].Genome, b.Agents[i].Genome);
         }
         for (int y = 0; y < 9; y++)
-        for (int x = 0; x < 12; x++) Assert.Equal(a.Food.Get(x, y), b.Food.Get(x, y));
+            for (int x = 0; x < 12; x++) Assert.Equal(a.Food.Get(x, y), b.Food.Get(x, y));
     }
 
     [Fact]
@@ -35,11 +35,11 @@ public class EvolutionTests
         Assert.Equal(0, new TerrainMap(2, 2).Get(1, 1));
         Assert.NotEqual(a.Terrain.Get(0, 0), c.Terrain.Get(0, 0));
         for (int y = 0; y < 30; y++)
-        for (int x = 0; x < 40; x++)
-        {
-            Assert.Equal(a.Terrain.Get(x, y), b.Terrain.Get(x, y));
-            Assert.InRange(a.Terrain.Get(x, y), -.5f, 1);
-        }
+            for (int x = 0; x < 40; x++)
+            {
+                Assert.Equal(a.Terrain.Get(x, y), b.Terrain.Get(x, y));
+                Assert.InRange(a.Terrain.Get(x, y), -.5f, 1);
+            }
     }
 
     [Fact]
@@ -106,7 +106,7 @@ public class EvolutionTests
         var a = new float[2, Agent.SensorCount];
         var b = new float[2, Agent.SensorCount];
         for (int o = 0; o < 2; o++)
-        for (int i = 0; i < Agent.SensorCount; i++) { a[o, i] = -4; b[o, i] = 4; }
+            for (int i = 0; i < Agent.SensorCount; i++) { a[o, i] = -4; b[o, i] = 4; }
         var parent = new NeuralNetwork(a);
         var other = new NeuralNetwork(b);
         var inherited = parent.Crossover(other, random, 0).GetWeights();

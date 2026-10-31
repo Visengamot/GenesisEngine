@@ -77,13 +77,13 @@ public sealed class TerrainBrush
         double bottom = Math.Min(map.Height - 1, (double)p.Y + Radius);
         if (left > right || top > bottom) return;
         for (int y = (int)Math.Ceiling(top); y <= (int)bottom; y++)
-        for (int x = (int)Math.Ceiling(left); x <= (int)right; x++)
-        {
-            double dx = x - (double)p.X, dy = y - (double)p.Y;
-            double distance = Math.Sqrt(dx * dx + dy * dy);
-            if (distance <= Radius)
-                map.Set(x, y, (float)Math.Clamp(map.Get(x, y) + Strength * (1 - distance / Radius), -100, 100));
-        }
+            for (int x = (int)Math.Ceiling(left); x <= (int)right; x++)
+            {
+                double dx = x - (double)p.X, dy = y - (double)p.Y;
+                double distance = Math.Sqrt(dx * dx + dy * dy);
+                if (distance <= Radius)
+                    map.Set(x, y, (float)Math.Clamp(map.Get(x, y) + Strength * (1 - distance / Radius), -100, 100));
+            }
     }
 }
 
@@ -150,72 +150,6 @@ public readonly record struct Genome
     }
 }
 
-/// <summary>A fixed-topology tanh controller with heritable weights, not NEAT.</summary>
-public sealed class NeuralNetwork
-{
-    private readonly float[,] weights;
-    public int InputCount => weights.GetLength(1);
-    public int OutputCount => weights.GetLength(0);
-
-    public NeuralNetwork(int input, int output, int seed = 1)
-    {
-        if (input <= 0 || input > 1024) throw new ArgumentOutOfRangeException(nameof(input));
-        if (output <= 0 || output > 1024) throw new ArgumentOutOfRangeException(nameof(output));
-        weights = new float[output, input];
-        var random = new Random(seed);
-        for (int o = 0; o < output; o++)
-        for (int i = 0; i < input; i++) weights[o, i] = random.NextSingle() * 2 - 1;
-    }
-
-    public NeuralNetwork(float[,] weights)
-    {
-        ArgumentNullException.ThrowIfNull(weights);
-        if (weights.GetLength(0) is < 1 or > 1024 || weights.GetLength(1) is < 1 or > 1024)
-            throw new ArgumentException("Invalid weight dimensions.", nameof(weights));
-        this.weights = (float[,])weights.Clone();
-        foreach (float weight in weights)
-        {
-            Guard.Finite(weight, nameof(weights));
-            if (Math.Abs(weight) > 4) throw new ArgumentOutOfRangeException(nameof(weights), "Weights must be in [-4, 4].");
-        }
-    }
-
-    public float[,] GetWeights() => (float[,])weights.Clone();
-
-    public float[] Evaluate(ReadOnlySpan<float> input)
-    {
-        if (input.Length != InputCount) throw new ArgumentException("Input length must match the network.", nameof(input));
-        foreach (float value in input) Guard.Finite(value, nameof(input));
-        var output = new float[OutputCount];
-        for (int o = 0; o < OutputCount; o++)
-        {
-            double sum = 0;
-            for (int i = 0; i < InputCount; i++) sum += (double)weights[o, i] * input[i];
-            output[o] = (float)Math.Tanh(sum);
-        }
-        return output;
-    }
-
-    public NeuralNetwork Crossover(NeuralNetwork other, Random random, float mutationRate = .1f)
-    {
-        ArgumentNullException.ThrowIfNull(other);
-        ArgumentNullException.ThrowIfNull(random);
-        Guard.Finite(mutationRate, nameof(mutationRate));
-        if (mutationRate < 0 || mutationRate > 1) throw new ArgumentOutOfRangeException(nameof(mutationRate));
-        if (InputCount != other.InputCount || OutputCount != other.OutputCount)
-            throw new ArgumentException("Parent network dimensions must match.", nameof(other));
-        var child = new float[OutputCount, InputCount];
-        for (int o = 0; o < OutputCount; o++)
-        for (int i = 0; i < InputCount; i++)
-        {
-            float value = random.Next(2) == 0 ? weights[o, i] : other.weights[o, i];
-            if (random.NextDouble() < mutationRate) value += (random.NextSingle() - .5f) * .4f;
-            child[o, i] = Math.Clamp(value, -4, 4);
-        }
-        return new(child);
-    }
-}
-
 public sealed class FoodMap
 {
     private readonly float[] amounts;
@@ -250,12 +184,12 @@ public sealed class FoodMap
     internal void Renew(float dt, TerrainMap terrain)
     {
         for (int y = 0; y < Height; y++)
-        for (int x = 0; x < Width; x++)
-        {
-            int index = y * Width + x;
-            float fertility = 1 / (1 + Math.Abs(terrain.Get(x, y)));
-            amounts[index] = Math.Min(Capacity, amounts[index] + .03f * fertility * dt);
-        }
+            for (int x = 0; x < Width; x++)
+            {
+                int index = y * Width + x;
+                float fertility = 1 / (1 + Math.Abs(terrain.Get(x, y)));
+                amounts[index] = Math.Min(Capacity, amounts[index] + .03f * fertility * dt);
+            }
     }
     private bool Contains(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
 }
@@ -270,8 +204,9 @@ public sealed class Agent
     public float Age { get; internal set; }
     public int Generation { get; internal set; }
     public NeuralNetwork Brain { get; }
+    public Vec2 Heading { get; set; }
 
-    public Agent(int id, Vec2 p, Genome g) : this(id, p, g, new NeuralNetwork(SensorCount, 2, id)) { }
+    public Agent(int id, Vec2 p, Genome g) : this(id, p, g, NeuralNetwork.CreateForager(id)) { }
 
     public Agent(int id, Vec2 p, Genome g, NeuralNetwork brain)
     {
@@ -289,9 +224,9 @@ public sealed class Agent
 }
 
 /// <summary>Single-threaded seeded prototype. Each positive Step is one tick; zero is a no-op.</summary>
-public sealed class Simulation
+public sealed partial class Simulation
 {
-    public const int MaximumPopulation = 150;
+    public const int MaximumPopulation = 600;
     public const float BirthCostPerParent = .65f;
     public const float MaximumAge = 180;
     public TerrainMap Terrain { get; }
@@ -299,27 +234,31 @@ public sealed class Simulation
     // Retained for App compatibility. External additions are validated before stepping.
     public List<Agent> Agents { get; } = new();
     public long Tick { get; private set; }
-    private readonly Random random;
-    private long nextId;
+    internal readonly Random random;
+    internal long nextId;
+    public int Seed { get; }
 
     public Simulation(int width = 160, int height = 90, int seed = 42)
     {
+        Seed = seed;
         Terrain = new(width, height);
         random = new(seed);
         // Seeded smooth elevation gives a reproducible biome without changing blank TerrainMap semantics.
         double phaseX = random.NextDouble() * Math.PI * 2;
         double phaseY = random.NextDouble() * Math.PI * 2;
         for (int y = 0; y < height; y++)
-        for (int x = 0; x < width; x++)
-        {
-            double rolling = Math.Sin(x * .065 + phaseX) * Math.Cos(y * .075 + phaseY);
-            double detail = Math.Sin((x + y) * .14 + phaseX + phaseY);
-            Terrain.Set(x, y, (float)(.25 + .6 * rolling + .15 * detail));
-        }
+            for (int x = 0; x < width; x++)
+            {
+                double rolling = Math.Sin(x * .065 + phaseX) * Math.Cos(y * .075 + phaseY);
+                double detail = Math.Sin((x + y) * .14 + phaseX + phaseY);
+                Terrain.Set(x, y, (float)(.25 + .6 * rolling + .15 * detail));
+            }
         Food = new(width, height, random);
         for (int i = 0; i < 80; i++)
             Agents.Add(new((int)nextId++, new(random.Next(width), random.Next(height)),
-                Genome.Random(random), new NeuralNetwork(Agent.SensorCount, 2, random.Next())));
+                Genome.Random(random), NeuralNetwork.CreateForager(random.Next()))
+            { Heading = RandomHeading() });
+        InitializeEnvironment();
     }
 
     public void Step(float dt)
@@ -329,17 +268,29 @@ public sealed class Simulation
         ValidateAgents();
         Tick = checked(Tick + 1);
         Food.Renew(dt, Terrain);
+        StepEnvironment(dt);
         foreach (var agent in Agents)
         {
             if (agent.Energy <= 0 || agent.Age >= MaximumAge) continue;
             agent.Age += dt;
-            float[] output = agent.Brain.Evaluate(Sense(agent));
-            float length = MathF.Sqrt(output[0] * output[0] + output[1] * output[1]);
-            float scale = agent.Genome.Speed * 4 * dt / Math.Max(1, length);
-            Vec2 target = Clamp(agent.Position + new Vec2(output[0], output[1]) * scale);
+            float[] inputs = Sense(agent);
+            // Public sensor slots preserve their original meaning; the controller receives centered levels.
+            for (int i = 0; i < 4; i++) inputs[i] -= .5f;
+            inputs[8] = inputs[8] * 2 - 1;
+            inputs[9] = inputs[9] * 2 - 1;
+            float[] output = agent.Brain.Evaluate(inputs);
+            var steering = new Vec2(output[0], output[1]);
+            float persistence = Math.Clamp(1 - dt * 1.4f, 0, 1);
+            var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
+            float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
+            if (length > 1) motion *= 1 / length;
+            // Reflect at real walls, retaining the reflected heading. No teleportation or center attraction.
+            var target = agent.Position + motion * (agent.Genome.Speed * 4 * dt);
+            float mx = motion.X, my = motion.Y;
+            target = new(Reflect(target.X, Terrain.Width - 1, ref mx), Reflect(target.Y, Terrain.Height - 1, ref my));
+            agent.Heading = new(mx, my);
             float elevation = Terrain.Get((int)agent.Position.X, (int)agent.Position.Y);
             float slope = Math.Abs(Terrain.Get((int)target.X, (int)target.Y) - elevation);
-            // Terrain gradients influence the neural inputs and the actual cost/speed of movement.
             agent.Position = Clamp(agent.Position + new Vec2(target.X - agent.Position.X,
                 target.Y - agent.Position.Y) * (1 / (1 + slope)));
             float eaten = Food.Consume((int)agent.Position.X, (int)agent.Position.Y, .35f * agent.Genome.Size * dt);
@@ -348,9 +299,10 @@ public sealed class Simulation
         }
         Agents.RemoveAll(a => a.Energy <= 0 || a.Age >= MaximumAge);
         Reproduce();
+        StepCivilization(dt);
     }
 
-    /// <summary>Food E/W/S/N, terrain E/W/S/N relative heights, energy, local food, curiosity oscillator, bias.</summary>
+    /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
     public float[] Sense(Agent agent)
     {
         ArgumentNullException.ThrowIfNull(agent);
@@ -364,10 +316,11 @@ public sealed class Simulation
         (int X, int Y)[] directions = [(1, 0), (-1, 0), (0, 1), (0, -1)];
         for (int i = 0; i < directions.Length; i++)
         {
-            int sx = Math.Clamp(x + directions[i].X * distance, 0, Terrain.Width - 1);
-            int sy = Math.Clamp(y + directions[i].Y * distance, 0, Terrain.Height - 1);
+            int sx = x + directions[i].X * distance;
+            int sy = y + directions[i].Y * distance;
+            bool outside = sx < 0 || sy < 0 || sx >= Terrain.Width || sy >= Terrain.Height;
             inputs[i] = Food.Get(sx, sy);
-            inputs[i + 4] = MathF.Tanh(Terrain.Get(sx, sy) - Terrain.Get(x, y));
+            inputs[i + 4] = outside ? 1 : MathF.Tanh(Terrain.Get(sx, sy) - Terrain.Get(x, y));
         }
         inputs[8] = Math.Clamp(agent.Energy / 3, 0, 1);
         inputs[9] = Food.Get(x, y);
@@ -384,6 +337,8 @@ public sealed class Simulation
             if (agent is null) throw new InvalidOperationException("Agent collection contains null.");
             if (!ids.Add(agent.Id)) throw new InvalidOperationException("Agent IDs must be unique.");
             Guard.Position(agent.Position, nameof(Agents));
+            Guard.Position(agent.Heading, nameof(Agents));
+            Guard.Finite(agent.Age, nameof(Agents));
             Guard.Finite(agent.Energy, nameof(Agents));
             agent.Genome.Validate();
             if (agent.Position != Clamp(agent.Position)) throw new ArgumentOutOfRangeException(nameof(Agents), "Agent is outside the map.");
@@ -407,7 +362,8 @@ public sealed class Simulation
             var child = new Agent((int)nextId++, Clamp(parent.Position + new Vec2(random.NextSingle() - .5f,
                 random.NextSingle() - .5f)), genome, brain)
             {
-                Generation = Math.Max(parent.Generation, mate.Generation) + 1
+                Generation = Math.Max(parent.Generation, mate.Generation) + 1,
+                Heading = RandomHeading()
             };
             // Combined cost exceeds newborn energy: reproduction never creates free energy.
             parent.Energy -= BirthCostPerParent;
@@ -418,5 +374,35 @@ public sealed class Simulation
         }
     }
 
+    partial void InitializeEnvironment();
+    partial void StepEnvironment(float dt);
+    partial void StepCivilization(float dt);
+
+    public Agent SpawnAgent(Vec2 position)
+    {
+        Guard.Position(position, nameof(position));
+        if (position != Clamp(position)) throw new ArgumentOutOfRangeException(nameof(position));
+        ValidateAgents();
+        if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) throw new InvalidOperationException("Population or ID capacity reached.");
+        var agent = new Agent((int)nextId++, position, Genome.Random(random), NeuralNetwork.CreateForager(random.Next())) { Heading = RandomHeading() };
+        Agents.Add(agent);
+        return agent;
+    }
+
+    private Vec2 RandomHeading()
+    {
+        float angle = random.NextSingle() * MathF.Tau;
+        return new(MathF.Cos(angle) * .65f, MathF.Sin(angle) * .65f);
+    }
+    private static float Reflect(float coordinate, float maximum, ref float direction)
+    {
+        if (maximum <= 0) { direction = 0; return 0; }
+        while (coordinate < 0 || coordinate > maximum)
+        {
+            if (coordinate < 0) { coordinate = -coordinate; direction = Math.Abs(direction); }
+            if (coordinate > maximum) { coordinate = 2 * maximum - coordinate; direction = -Math.Abs(direction); }
+        }
+        return coordinate;
+    }
     private Vec2 Clamp(Vec2 p) => new(Math.Clamp(p.X, 0, Terrain.Width - 1), Math.Clamp(p.Y, 0, Terrain.Height - 1));
 }
