@@ -194,6 +194,12 @@ public sealed class FoodMap
     private bool Contains(int x, int y) => x >= 0 && y >= 0 && x < Width && y < Height;
 }
 
+internal enum DeathCause { Other, EnergyDepletion, Fire, Predator, Climate }
+
+/// <summary>Lifetime deaths removed by simulation ticks. External list edits and the Erase tool are not natural deaths.</summary>
+public readonly record struct MortalityStatistics(long LifetimeDeaths, long OldAge, long EnergyDepletion,
+    long Fire, long Predators, long Climate, long Other);
+
 public sealed class Agent
 {
     public const int SensorCount = 12;
@@ -207,6 +213,8 @@ public sealed class Agent
     public int SpeciesId { get; internal set; } = -1;
     public int OffspringCount { get; internal set; }
     public Vec2 Heading { get; set; }
+    // Reset at each tick; only lethal damage records a cause, never merely nearby exposure.
+    internal DeathCause LethalCause { get; set; }
 
     public Agent(int id, Vec2 p, Genome g) : this(id, p, g, NeuralNetwork.CreateForager(id)) { }
 
@@ -233,8 +241,8 @@ public readonly record struct AgentEntitySnapshot(PositionComponent Position, Vi
 public sealed partial class Simulation
 {
     public const int MaximumPopulation = 1000;
-    public const float BirthCostPerParent = .65f;
-    public const float MaximumAge = 180;
+    public const float BirthCostPerParent = .8f;
+    public const float MaximumAge = 90;
     // Procedural hills stay traversable; only deliberately sculpted deep water and peaks block agents.
     public const float DeepWaterLevel = -.6f;
     public const float MountainLevel = 3f;
@@ -261,6 +269,9 @@ public sealed partial class Simulation
     }
     public SimulationDiagnostics Diagnostics => new(Tick, Agents.Count, agentStore.BucketCount, agentStore.CandidateChecks);
     public long Tick { get; private set; }
+    /// <summary>Deaths actually removed during Step; the cause is the lethal damage source, with old age taking priority.</summary>
+    public MortalityStatistics Mortality { get; private set; }
+    public long LifetimeDeaths => Mortality.LifetimeDeaths;
     internal readonly WorldRandom random;
     internal long nextId;
     public int Seed { get; }
@@ -297,6 +308,7 @@ public sealed partial class Simulation
         ValidateAgents();
         SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
         Tick = checked(Tick + 1);
+        foreach (var agent in Agents) agent.LethalCause = DeathCause.Other;
         Food.Renew(dt, Terrain);
         StepEnvironment(dt);
         SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
@@ -338,13 +350,30 @@ public sealed partial class Simulation
             position = new(moved);
             float eaten = Food.Consume((int)moved.X, (int)moved.Y, .35f * genome.Size * dt);
             vitality = vitality with { Energy = Math.Min(3, vitality.Energy + eaten - dt *
-                (.06f * genome.Metabolism * genome.Size + .025f * genome.Speed * length * (1 + slope))) };
+                (.12f * genome.Metabolism * genome.Size + .025f * genome.Speed * length * (1 + slope))) };
             // Explicit write-back: subsequent civilization/reproduction and public observers read Agents.
             agent.Position = position.Value;
             agent.Energy = vitality.Energy;
+            if (agent.Energy <= 0) agent.LethalCause = DeathCause.EnergyDepletion;
         }
-        Agents.RemoveAll(a => a.Energy <= 0 || a.Age >= MaximumAge);
-        Reproduce();
+        Agents.RemoveAll(agent =>
+        {
+            if (agent.Energy > 0 && agent.Age < MaximumAge) return false;
+            var m = Mortality;
+            // Age has priority even when exposure depleted energy in the same tick.
+            m = agent.Age >= MaximumAge ? m with { OldAge = m.OldAge + 1 }
+                : agent.LethalCause switch
+                {
+                    DeathCause.Fire => m with { Fire = m.Fire + 1 },
+                    DeathCause.Predator => m with { Predators = m.Predators + 1 },
+                    DeathCause.Climate => m with { Climate = m.Climate + 1 },
+                    DeathCause.EnergyDepletion => m with { EnergyDepletion = m.EnergyDepletion + 1 },
+                    _ => m with { Other = m.Other + 1 }
+                };
+            Mortality = m with { LifetimeDeaths = m.LifetimeDeaths + 1 };
+            return true;
+        });
+        Reproduce(dt);
         StepCivilization(dt);
         SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }
@@ -438,14 +467,14 @@ public sealed partial class Simulation
         }
     }
 
-    private void Reproduce()
+    private void Reproduce(float dt)
     {
         RefreshSpecies();
         if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) return;
         var sizes = Species.ToDictionary(s => s.Id, s => s.MemberCount);
         // Online fitness sharing prioritizes rare compatible groups when local mates/capacity are scarce.
         // This is steady-state ecological selection, not generations, species quotas or full NEAT.
-        var parents = Agents.Where(a => a.Age >= 5 && a.Energy >= 1.5f)
+        var parents = Agents.Where(a => a.Age >= 5 && a.Energy >= 1.7f)
             .OrderByDescending(a => ReproductiveFitness(a) / sizes[a.SpeciesId])
             .ThenBy(a => a.Id).ToArray();
         var used = new HashSet<int>();
@@ -458,6 +487,12 @@ public sealed partial class Simulation
             var mate = parents.FirstOrDefault(a => a.SpeciesId == parent.SpeciesId && Available(a));
             if (mate is null && AllowInterspeciesMating) mate = parents.FirstOrDefault(Available);
             if (mate is null) continue;
+            // Territorial crowding reduces successful matings smoothly; it is not a soft population cap.
+            // Competition for sites lowers birth success at high density, but never directly kills an agent.
+            float crowding = (float)Agents.Count / MaximumPopulation;
+            float freeSpace = 1 - crowding;
+            float birthRate = .32f * freeSpace * freeSpace * freeSpace;
+            if (random.NextSingle() >= 1 - MathF.Exp(-birthRate * dt)) continue;
             var genome = parent.Genome.Crossover(mate.Genome, random).Mutate(random);
             var brain = parent.Brain.Crossover(mate.Brain, random);
             var child = new Agent((int)nextId++, Clamp(parent.Position + new Vec2(random.NextSingle() - .5f,

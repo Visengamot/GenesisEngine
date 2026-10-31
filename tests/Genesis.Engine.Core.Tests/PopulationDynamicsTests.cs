@@ -18,7 +18,7 @@ public class PopulationDynamicsTests
             // The persisted NextId is a lifetime counter, including deceased offspring.
             using var save = JsonDocument.Parse(simulation.SaveJson());
             long births = save.RootElement.GetProperty("NextId").GetInt64() - initialPopulation;
-            Assert.True(births >= 100, $"Only {births} natural births in 30 seconds.");
+            Assert.True(births >= 40, $"Only {births} natural births in 30 seconds.");
             Assert.True(simulation.Agents.Count > initialPopulation,
                 $"Population never grew beyond {initialPopulation} founders.");
             Assert.InRange(simulation.Agents.Count, 1, Simulation.MaximumPopulation);

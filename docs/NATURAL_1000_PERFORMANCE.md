@@ -1,4 +1,6 @@
-# Natural population: native full-frame benchmark
+# Historical natural 1000 population: native full-frame benchmark
+
+**Historical measurement, before the mortality/reproduction rebalance.** Current seed-42 ordinary population is about 393 at 60 simulated seconds and 610 at 120 seconds, not constantly 1000. The measured frame timings below describe the older version and must not be presented as a benchmark of the current ecology.
 
 This benchmark measures a **naturally evolved** seeded world, not an injected 10,000-agent stress scenario. Launch the Release application from the repository root:
 

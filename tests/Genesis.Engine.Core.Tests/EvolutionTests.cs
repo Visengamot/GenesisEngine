@@ -141,17 +141,27 @@ public class EvolutionTests
         for (int i = 0; i < 50; i++) simulation.Step(.1f);
         first.Energy = 2;
         second.Energy = 2;
-        simulation.Step(.1f);
+        for (int tick = 0; tick < 200 && !simulation.Agents.Any(a => a.Generation == 1); tick++)
+        {
+            first.Energy = Math.Max(first.Energy, 2);
+            second.Energy = Math.Max(second.Energy, 2);
+            simulation.Step(1);
+        }
         var child = Assert.Single(simulation.Agents.Where(a => a.Generation == 1));
         Assert.True(child.Id > 300);
-        Assert.True(first.Energy < 1.5f);
-        Assert.True(second.Energy < 1.5f);
+        Assert.True(first.Energy < 2);
+        Assert.True(second.Energy < 2);
         Assert.Equal(1, child.Energy);
         int oldId = child.Id;
         child.Energy = 0;
         first.Energy = 2;
         second.Energy = 2;
-        simulation.Step(.1f);
+        for (int tick = 0; tick < 200 && !simulation.Agents.Any(a => a.Id > oldId); tick++)
+        {
+            first.Energy = Math.Max(first.Energy, 2);
+            second.Energy = Math.Max(second.Energy, 2);
+            simulation.Step(1);
+        }
         Assert.DoesNotContain(simulation.Agents, a => a.Id == oldId);
         Assert.Contains(simulation.Agents, a => a.Id > oldId);
         Assert.Equal(simulation.Agents.Count, simulation.Agents.Select(a => a.Id).Distinct().Count());

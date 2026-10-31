@@ -54,6 +54,7 @@ internal static class Game
         var accumulator = 0f;
         var zoom = 1f;
         var pan = Vector2.Zero;
+        var mapDrag = new MapInteractionController();
         var selectedId = -1;
         var showTerritories = false;
         var notice = "Мир развивается сам. Вы меняете условия жизни.";
@@ -73,8 +74,8 @@ internal static class Game
                 bool onMap = Raylib.CheckCollisionPointRec(mouse, mapArea);
                 float baseCell = Math.Min(mapArea.Width / simulation.Terrain.Width, mapArea.Height / simulation.Terrain.Height);
                 float cell = baseCell * zoom;
-                var origin = new Vector2(mapArea.X + (mapArea.Width - simulation.Terrain.Width * cell) / 2,
-                    mapArea.Y + (mapArea.Height - simulation.Terrain.Height * cell) / 2) + pan;
+                Vector2 MapOrigin() => new(mapArea.X + (mapArea.Width - simulation.Terrain.Width * cell) / 2 + pan.X,
+                    mapArea.Y + (mapArea.Height - simulation.Terrain.Height * cell) / 2 + pan.Y);
                 if (!benchmarkMode)
                 {
                     float wheel = Raylib.GetMouseWheelMove();
@@ -87,7 +88,7 @@ internal static class Game
                     if (Raylib.IsKeyPressed(KeyboardKey.Two)) speed = 2;
                     if (Raylib.IsKeyPressed(KeyboardKey.Three)) speed = 4;
                     if (Raylib.IsKeyPressed(KeyboardKey.Home)) { pan = Vector2.Zero; zoom = 1; }
-                    if (Raylib.IsKeyPressed(KeyboardKey.R)) { simulation = new Simulation(seed: simulation.Seed + 1); selectedId = -1; accumulator = 0; notice = "Создан новый мир"; }
+                    if (Raylib.IsKeyPressed(KeyboardKey.R)) { simulation = new Simulation(seed: simulation.Seed + 1); selectedId = -1; accumulator = 0; mapDrag.Reset(); notice = "Создан новый мир"; }
                     if (Raylib.IsKeyPressed(KeyboardKey.F5))
                     {
                         try { WorldFile.Save(simulation, savePath); notice = "Мир сохранён: " + savePath; }
@@ -95,27 +96,31 @@ internal static class Game
                     }
                     if (Raylib.IsKeyPressed(KeyboardKey.F9))
                     {
-                        try { simulation = WorldFile.Load(savePath); selectedId = -1; accumulator = 0; notice = "Мир загружен"; }
+                        try { simulation = WorldFile.Load(savePath); selectedId = -1; accumulator = 0; mapDrag.Reset(); notice = "Мир загружен"; }
                         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or NotSupportedException) { notice = "Не удалось загрузить: " + e.Message; }
                     }
                 }
+                bool brush = tool is not (GodTool.Inspect or GodTool.People or GodTool.Predator);
+                var gesture = benchmarkMode ? default : mapDrag.Update(mouse,
+                    Raylib.IsMouseButtonPressed(MouseButton.Left), Raylib.IsMouseButtonDown(MouseButton.Left),
+                    Raylib.IsMouseButtonReleased(MouseButton.Left), onMap,
+                    brush && (Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift)));
+                pan += gesture.PanDelta;
+                var origin = MapOrigin();
                 var point = new Vec2((mouse.X - origin.X) / cell, (mouse.Y - origin.Y) / cell);
                 bool inside = onMap && point.X >= 0 && point.Y >= 0 && point.X < simulation.Terrain.Width && point.Y < simulation.Terrain.Height;
                 if (inside && !benchmarkMode)
                 {
-                    if (tool == GodTool.Inspect && Raylib.IsMouseButtonPressed(MouseButton.Left))
+                    if (gesture.Click && tool == GodTool.Inspect)
                     {
                         var nearest = simulation.Agents.OrderBy(a => Distance(a.Position, point)).FirstOrDefault();
                         selectedId = nearest != null && Distance(nearest.Position, point) < 5 ? nearest.Id : -1;
                     }
-                    else if (tool != GodTool.Inspect)
+                    else if (gesture.Click || (gesture.Paint && brush))
                     {
-                        bool single = tool is GodTool.People or GodTool.Predator;
-                        if (single ? Raylib.IsMouseButtonPressed(MouseButton.Left) : Raylib.IsMouseButtonDown(MouseButton.Left))
-                        {
-                            simulation.ApplyTool(tool, point, radius, single ? 1 : elapsed * 2);
-                            WorldRenderer.InvalidateTerrain();
-                        }
+                        simulation.ApplyTool(tool, point, radius,
+                            tool is GodTool.People or GodTool.Predator ? 1 : gesture.Paint ? elapsed * 2 : .15f);
+                        WorldRenderer.InvalidateTerrain();
                     }
                 }
                 benchmark?.BeginStep();
@@ -160,8 +165,9 @@ internal static class Game
                 Text(chosen.Name, 20, 435, 21, new Color(147, 223, 177, 255));
                 Wrap(chosen.Hint, 20, 464, 260, 15, Muted);
                 Text($"Радиус кисти: {radius:0}", 20, 510, 16, Ink);
-                Text("Колесо — кисть • Ctrl+колесо — масштаб", 20, 538, 12, Muted);
-                Text("Средняя кнопка — карта • T — племена", 20, 557, 12, Muted);
+                Text("Колесо — кисть • Ctrl+колесо — масштаб", 20, 531, 12, Muted);
+                Text("ЛКМ+движение — карта • клик — действие", 20, 550, 12, Muted);
+                Text("Shift+ЛКМ — рисовать • СКМ — карта", 20, 569, 12, Muted);
                 var selected = simulation.Agents.FirstOrDefault(a => a.Id == selectedId);
                 if (selected != null)
                 {
@@ -184,6 +190,11 @@ internal static class Game
                     }
                     if (simulation.Events.Count == 0) Wrap("Выберите «Наблюдать» и нажмите на жителя. Цвет одежды отражает его гены.", 20, 622, 260, 16, Muted);
                 }
+                var mortality = simulation.Mortality;
+                Text($"УМЕРЛИ ЗА ВСЁ ВРЕМЯ: {mortality.LifetimeDeaths}", 20, 763, 14, Ink);
+                Text($"Возраст {mortality.OldAge} • Голод {mortality.EnergyDepletion}", 20, 782, 13, Muted);
+                Text($"Огонь {mortality.Fire} • Хищники {mortality.Predators}", 20, 799, 13, Muted);
+                Text($"Климат {mortality.Climate} • Другое {mortality.Other}", 20, 816, 13, Muted);
                 Text("F5 — сохранить   F9 — загрузить", 20, height - 103, 14, Ink);
                 Text("R — новый мир   Home — вид целиком", 20, height - 80, 13, Muted);
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));

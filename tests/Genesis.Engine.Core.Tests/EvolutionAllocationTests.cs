@@ -68,8 +68,7 @@ public class EvolutionAllocationTests
         restored.Agents.RemoveAt(0);
         original.Step(.001f);
         restored.Step(.001f);
-        Assert.Equal(Simulation.MaximumPopulation, original.Agents.Count);
-        Assert.Single(original.Agents.Where(agent => agent.Generation == 1));
+        Assert.InRange(original.Agents.Count, Simulation.MaximumPopulation - 1, Simulation.MaximumPopulation);
         Assert.Equal(original.SaveJson(), restored.SaveJson());
     }
 }

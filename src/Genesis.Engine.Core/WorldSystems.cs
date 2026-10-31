@@ -132,7 +132,12 @@ public sealed partial class Simulation
         foreach (var a in Agents)
         {
             var c = Environment.Get((int)a.Position.X, (int)a.Position.Y);
-            a.Energy = Math.Clamp(a.Energy - dt * (c.Fire * .7f + Math.Max(0, Math.Abs(c.Temperature - 22) - 15) * .0015f), 0, 3);
+            float fireDamage = dt * c.Fire * .7f;
+            float climateDamage = dt * Math.Max(0, Math.Abs(c.Temperature - 22) - 15) * .0015f;
+            float before = a.Energy;
+            a.Energy = Math.Clamp(before - fireDamage - climateDamage, 0, 3);
+            if (before > 0 && a.Energy <= 0)
+                a.LethalCause = fireDamage >= climateDamage ? DeathCause.Fire : DeathCause.Climate;
         }
         // Reconcile public mutable Agents at the phase boundary; predicates read live energy
         // so a prey killed by an earlier predator is not selected again.
@@ -147,7 +152,9 @@ public sealed partial class Simulation
             if (DistanceSquared(prey.Position, p.Position) < 1)
             {
                 float damage = Math.Min(prey.Energy, dt * .35f);
-                prey.Energy -= damage; p.Energy = Math.Min(3, p.Energy + damage * .6f);
+                prey.Energy -= damage;
+                if (prey.Energy <= 0 && damage > 0) prey.LethalCause = DeathCause.Predator;
+                p.Energy = Math.Min(3, p.Energy + damage * .6f);
             }
         }
         predators.RemoveAll(p => p.Energy <= 0);

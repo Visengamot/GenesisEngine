@@ -88,7 +88,7 @@ public class LineageTests
         var loaded = Simulation.LoadJson(JsonSerializer.Serialize(legacy));
         Assert.Equal(100, loaded.Agents.Single(a => a.Id == 101).SpeciesId);
         Assert.Equal(102, loaded.Agents.Single(a => a.Id == 102).SpeciesId);
-        Assert.Equal(4, JsonSerializer.Deserialize<WorldSave>(loaded.SaveJson())!.Version);
+        Assert.Equal(5, JsonSerializer.Deserialize<WorldSave>(loaded.SaveJson())!.Version);
     }
 
     [Fact]

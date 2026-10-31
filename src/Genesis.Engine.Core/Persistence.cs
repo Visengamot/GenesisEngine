@@ -14,7 +14,8 @@ public sealed partial class Simulation
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 4,
+            Version = 5,
+            Mortality = Mortality,
             NextSpeciesId = nextSpeciesId,
             Lineages = SaveLineages(),
             RandomState = random.State,
@@ -73,7 +74,15 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2 or 3 or 4)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version is not (1 or 2 or 3 or 4 or 5)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version == 5)
+        {
+            var m = d.Mortality ?? throw new ArgumentException("Missing mortality counters.");
+            if (m.LifetimeDeaths < 0 || m.OldAge < 0 || m.EnergyDepletion < 0 || m.Fire < 0 ||
+                m.Predators < 0 || m.Climate < 0 || m.Other < 0 ||
+                (decimal)m.OldAge + m.EnergyDepletion + m.Fire + m.Predators + m.Climate + m.Other != m.LifetimeDeaths)
+                throw new ArgumentException("Invalid mortality counters.");
+        }
         if (d.Version >= 2 && (d.RandomState is null || d.Events is null || d.Events.Length > 64 || d.Events.Any(e => e is null || e.Length > 2048)))
             throw new ArgumentException("Invalid random state or journal.");
         if (d.Width <= 0 || d.Height <= 0 || (long)d.Width * d.Height > 1_000_000) throw new ArgumentException("Invalid snapshot dimensions.");
@@ -84,6 +93,7 @@ public sealed partial class Simulation
         Range(d.CivilizationClock, 0, 2);
         var sim = new Simulation(d.Width, d.Height, d.Seed);
         sim.Agents.Clear(); sim.Tick = d.Tick; sim.nextId = d.NextId; sim.nextTribeId = d.NextTribeId; sim.civilizationClock = d.CivilizationClock;
+        sim.Mortality = d.Version == 5 ? d.Mortality!.Value : default; // Pre-v5 deaths cannot be inferred reliably.
         for (int y = 0; y < d.Height; y++)
             for (int x = 0; x < d.Width; x++)
             {
@@ -162,6 +172,7 @@ public sealed class WorldSave
     public int Height { get; set; }
     public int Seed { get; set; }
     public long Tick { get; set; }
+    public MortalityStatistics? Mortality { get; set; }
     public long NextId { get; set; }
     public long NextSpeciesId { get; set; }
     public SpeciesLineageSave[]? Lineages { get; set; }

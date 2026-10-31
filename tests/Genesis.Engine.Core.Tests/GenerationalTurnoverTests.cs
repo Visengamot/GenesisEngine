@@ -5,15 +5,15 @@ namespace Genesis.Engine.Core.Tests;
 public class GenerationalTurnoverTests
 {
     [Fact]
-    public void SeededDefaultWorldReplacesAgentsAfterFirstReachingPopulationCap()
+    public void SeededDefaultWorldHasBirthsAndDeathsWithoutAlwaysFillingPopulationCap()
     {
         var simulation = new Simulation(160, 90, 42);
         var previousIds = simulation.Agents.Select(a => a.Id).ToHashSet();
-        long births = 0, deaths = 0, birthsAtFirstCap = -1;
-        int firstCapTick = -1;
+        long births = 0, deaths = 0;
+        int cappedTicks = 0;
 
-        // This seed first reaches the cap around tick 978; 60 simulated seconds
-        // leave time for turnover without the cost of a 90+ second CI scenario.
+        // Reproduction and mortality should coexist; 1000 is a safety ceiling,
+        // not a population target that the ordinary ecology must always hit.
         for (int tick = 1; tick <= 60 * 30; tick++)
         {
             simulation.Step(1f / 30);
@@ -22,17 +22,13 @@ public class GenerationalTurnoverTests
             deaths += previousIds.Count(id => !currentIds.Contains(id));
             previousIds = currentIds;
             Assert.InRange(simulation.Agents.Count, 0, Simulation.MaximumPopulation);
-            if (firstCapTick < 0 && simulation.Agents.Count == Simulation.MaximumPopulation)
-            {
-                firstCapTick = tick;
-                birthsAtFirstCap = births;
-            }
+            if (simulation.Agents.Count == Simulation.MaximumPopulation) cappedTicks++;
         }
 
-        Assert.True(firstCapTick > 0, "The default seed did not reach its cap within 60 seconds.");
-        Assert.True(births > birthsAtFirstCap,
-            $"No births followed the first cap at tick {firstCapTick}: {birthsAtFirstCap} then {births}.");
+        Assert.True(cappedTicks < 60 * 30 / 10, $"Population stayed at the safety limit for {cappedTicks} ticks.");
+        Assert.True(births > 80, $"Only {births} natural births occurred.");
         Assert.True(deaths > 0, "No natural deaths occurred during the 60-second scenario.");
+        Assert.Equal(deaths, simulation.LifetimeDeaths);
         Assert.True(simulation.Agents.Any(a => a.Generation >= 2), "No multi-generation descendants survived.");
     }
 }

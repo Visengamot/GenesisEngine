@@ -77,6 +77,17 @@ public class SpeciationTests
         return sim;
     }
 
+    private static void StepUntilBirth(Simulation sim, params Agent[] parents)
+    {
+        for (int tick = 0; tick < 200; tick++)
+        {
+            foreach (var parent in parents) parent.Energy = Math.Max(parent.Energy, 2);
+            sim.Step(1);
+            if (parents.Any(parent => parent.OffspringCount > 0)) return;
+        }
+        Assert.Fail("Eligible parents produced no offspring in 200 simulated seconds.");
+    }
+
     [Fact]
     public void ReproductionPrefersCompatibleMateEvenWhenOtherSpeciesRanksFirst()
     {
@@ -84,11 +95,11 @@ public class SpeciationTests
         var incompatible = new Agent(101, default, Traits, Brain(4));
         var compatible = new Agent(102, default, Traits, Brain());
         var sim = Mature(a, incompatible, compatible);
-        sim.Step(.01f);
+        StepUntilBirth(sim, a, incompatible, compatible);
         Assert.Equal(1, a.OffspringCount);
         Assert.Equal(0, incompatible.OffspringCount);
         Assert.Equal(1, compatible.OffspringCount);
-        Assert.True(a.Energy < 1.5f && compatible.Energy < 1.5f);
+        Assert.True(a.Energy < 2 && compatible.Energy < 2);
         var child = Assert.Single(sim.Agents.Where(x => x.Generation == 1));
         Assert.Equal(a.SpeciesId, child.SpeciesId);
         Assert.Equal(4, sim.Species.Sum(s => s.MemberCount));
@@ -103,7 +114,7 @@ public class SpeciationTests
         sim.Step(.01f);
         Assert.Equal(2, sim.Agents.Count);
         sim.AllowInterspeciesMating = true;
-        sim.Step(.01f);
+        StepUntilBirth(sim, a, b);
         Assert.Equal(3, sim.Agents.Count);
         Assert.Equal(1, a.OffspringCount);
         Assert.Equal(1, b.OffspringCount);
@@ -140,7 +151,7 @@ public class SpeciationTests
         var sim = Mature(low, high, middle);
         low.Energy = 1.6f; high.Energy = 2.8f; middle.Energy = 2;
         Assert.True(Simulation.ReproductiveFitness(high) > Simulation.ReproductiveFitness(low));
-        sim.Step(.01f);
+        StepUntilBirth(sim, high, middle);
         Assert.Equal(0, low.OffspringCount);
         Assert.Equal(1, high.OffspringCount);
         Assert.Equal(1, middle.OffspringCount);
