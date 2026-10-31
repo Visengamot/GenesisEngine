@@ -11,9 +11,13 @@ public sealed class NeuralNetwork
     private readonly NodeGene[] nodes;
     private readonly ConnectionGene[] connections;
     private readonly Dictionary<int, int> slots;
+    private readonly int[] inputSlots;
+    private readonly int[] outputSlots;
     private readonly (int Target, (int Source, float Weight)[] Incoming)[] evaluation;
     public int InputCount { get; }
     public int OutputCount { get; }
+    /// <summary>Minimum scratch buffer length required by span-based evaluation.</summary>
+    public int ScratchSize => nodes.Length;
     public int HiddenNodeCount => nodes.Count(n => n.Kind == NeuralNodeKind.Hidden);
     public int ConnectionCount => connections.Count(c => c.Enabled);
 
@@ -35,6 +39,13 @@ public sealed class NeuralNetwork
             int count = kind == NeuralNodeKind.Input ? InputCount : OutputCount;
             if (!nodes.Where(n => n.Kind == kind).Select(n => n.Index).Order().SequenceEqual(Enumerable.Range(0, count)))
                 throw new ArgumentException("Missing input/output nodes.", nameof(snapshot));
+        }
+        inputSlots = new int[InputCount]; outputSlots = new int[OutputCount];
+        for (int slot = 0; slot < nodes.Length; slot++)
+        {
+            var node = nodes[slot];
+            if (node.Kind == NeuralNodeKind.Input) inputSlots[node.Index] = slot;
+            else if (node.Kind == NeuralNodeKind.Output) outputSlots[node.Index] = slot;
         }
         var innovations = new HashSet<long>(); var endpoints = new HashSet<(int, int)>();
         foreach (var c in connections)
@@ -95,18 +106,28 @@ public sealed class NeuralNetwork
     }
     public float[] Evaluate(ReadOnlySpan<float> input)
     {
+        var output = new float[OutputCount];
+        Evaluate(input, output, new float[ScratchSize]);
+        return output;
+    }
+
+    /// <summary>Evaluates without allocating, using caller-owned output and scratch buffers.</summary>
+    /// <remarks>Input length must match InputCount. Outputs and scratch require at least OutputCount
+    /// and ScratchSize elements respectively; their unused tails are untouched. Scratch must not
+    /// overlap input or outputs. Scratch contents need not be initialized and are overwritten.</remarks>
+    public void Evaluate(ReadOnlySpan<float> input, Span<float> outputs, Span<float> scratch)
+    {
         if (input.Length != InputCount) throw new ArgumentException("Input length must match the network.", nameof(input));
+        if (outputs.Length < OutputCount) throw new ArgumentException("Output buffer is too small.", nameof(outputs));
+        if (scratch.Length < ScratchSize) throw new ArgumentException("Scratch buffer is too small.", nameof(scratch));
         foreach (float value in input) Guard.Finite(value, nameof(input));
-        var values = new float[nodes.Length];
-        foreach (var n in nodes.Where(n => n.Kind == NeuralNodeKind.Input)) values[slots[n.Id]] = input[n.Index];
+        for (int i = 0; i < inputSlots.Length; i++) scratch[inputSlots[i]] = input[i];
         foreach (var (target, incoming) in evaluation)
         {
-            double sum = 0; foreach (var (source, weight) in incoming) sum += (double)values[source] * weight;
-            values[target] = (float)Math.Tanh(sum);
+            double sum = 0; foreach (var (source, weight) in incoming) sum += (double)scratch[source] * weight;
+            scratch[target] = (float)Math.Tanh(sum);
         }
-        var output = new float[OutputCount];
-        foreach (var n in nodes.Where(n => n.Kind == NeuralNodeKind.Output)) output[n.Index] = values[slots[n.Id]];
-        return output;
+        for (int i = 0; i < outputSlots.Length; i++) outputs[i] = scratch[outputSlots[i]];
     }
     public static NeuralNetwork CreateForager(int seed)
     {
