@@ -136,7 +136,7 @@ internal static class Game
                 Raylib.DrawRectangle(0, 0, width, Top, new Color(23, 32, 38, 255));
                 Text("GENESIS", 22, 12, 25, new Color(147, 223, 177, 255));
                 Text("ЛАБОРАТОРИЯ ЖИВОГО МИРА", 23, 43, 12, Muted);
-                Text($"Жители  {simulation.Agents.Count}     Племена  {simulation.Tribes.Count}     Поколение  {(simulation.Agents.Count == 0 ? 0 : simulation.Agents.Max(a => a.Generation))}", 322, 14, 19, Ink);
+                Text($"Жители  {simulation.Agents.Count}/{Simulation.MaximumPopulation}     Племена  {simulation.Tribes.Count}     Поколение  {(simulation.Agents.Count == 0 ? 0 : simulation.Agents.Max(a => a.Generation))}", 322, 14, 19, Ink);
                 Text($"Время  {simulation.Tick / 30f:0} с    •    {speed}×    •    Видов {simulation.SpeciesCount}    •    {(paused ? "Пауза" : "Жизнь продолжается")}", 322, 42, 16, Muted);
                 if (Button(new(width - 244, 20, 102, 34), paused ? "Продолжить" : "Пауза", paused)) paused = !paused;
                 if (Button(new(width - 130, 20, 108, 34), $"Скорость {speed}×", false)) speed = speed == 4 ? 1 : speed * 2;

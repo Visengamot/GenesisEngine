@@ -4,7 +4,7 @@
 
 ## Reproducible method
 
-Run the Release `tools/Benchmark` assembly from an isolated working directory so its hard-coded `benchmark-results.json` output does not overwrite the pre-migration baseline at the repository root. Explicit arguments: `600 2000 10000`. Each scenario constructs a seeded 160 × 90 world (`seed=42`), injects independently generated agents beyond the normal birth limit of 600, runs 30 unmeasured warm-up steps, then measures 120 complete `Simulation.Step(1f/30)` calls, reporting arithmetic mean, 95th percentile, maximum, and managed bytes allocated per measured step. All simulation systems remain enabled. The benchmark's p95 calculation takes sorted index 114 (zero-based) for 120 samples, rather than the nearest-rank index 113; compare outputs from the same executable methodology only.
+Run the Release `tools/Benchmark` assembly from an isolated working directory so its hard-coded `benchmark-results.json` output does not overwrite the pre-migration baseline at the repository root. Explicit arguments: `600 2000 10000`. Each scenario constructs a seeded 160 × 90 world (`seed=42`), injects independently generated agents beyond the then-applicable birth limit of 600 (now 1,000), runs 30 unmeasured warm-up steps, then measures 120 complete `Simulation.Step(1f/30)` calls, reporting arithmetic mean, 95th percentile, maximum, and managed bytes allocated per measured step. All simulation systems remain enabled. The benchmark's p95 calculation takes sorted index 114 (zero-based) for 120 samples, rather than the nearest-rank index 113; compare outputs from the same executable methodology only.
 
 Historical measurements are preserved in [`../benchmark-results.json`](<../benchmark-results.json>); the separate native-window baseline is [`../render-benchmark-results.json`](<../render-benchmark-results.json>). Headless step time is **not rendered FPS**. Figures below are single-run measurements, sensitive to concurrent workloads, JIT/GC and machine conditions; they are not confidence intervals or a controlled causal attribution to ECS alone.
 
@@ -43,7 +43,7 @@ The 10,000-agent scenario regresses by 6.38 ms (+16%) mean full-frame time and 6
 ## Limitations
 
 - The public `Agents` list remains authoritative across phases; ECS component storage is synchronized to it, and agents/brains are still object-backed. This benchmark does not isolate ECS memory bandwidth or quantify per-system improvements.
-- An injected population exceeding 600 is synthetic, not typical sustained gameplay. Final populations should be reported, because births/deaths change load.
+- At the time of this measurement the game cap was 600; it is now 1,000. Injected populations beyond the applicable cap are synthetic, not typical sustained gameplay. Final populations should be reported, because births/deaths change load.
 - A 120-step sample (~4 seconds of simulation time) does not establish long-run stability, mutation/reproduction costs, or sustained GC pressure.
 - Renderer CPU wall-clock times may include driver/compositor presentation waits; they are not GPU timestamps, and an uncapped target does not guarantee real display FPS.
 - The rebuilt state also includes uncommitted terrain-navigation edits (movement sweep). No separate ECS-only binary was measured. A separate test process may have run during the headless measurement; the baseline and new runs were not paired or load-isolated. Repeat on a quiet machine at an identified immutable commit before treating small changes as reliable.

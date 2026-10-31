@@ -232,7 +232,7 @@ public readonly record struct AgentEntitySnapshot(PositionComponent Position, Vi
 /// <summary>Single-threaded seeded prototype. Each positive Step is one tick; zero is a no-op.</summary>
 public sealed partial class Simulation
 {
-    public const int MaximumPopulation = 600;
+    public const int MaximumPopulation = 1000;
     public const float BirthCostPerParent = .65f;
     public const float MaximumAge = 180;
     // Procedural hills stay traversable; only deliberately sculpted deep water and peaks block agents.
@@ -245,6 +245,8 @@ public sealed partial class Simulation
     private readonly AgentStore agentStore = new();
     private readonly EntityRegistry entities = new();
     private readonly Dictionary<int, EntityHandle> entityByAgentId = new();
+    // Single-threaded reconciliation and validation never overlap; retain capacity across ticks.
+    private readonly HashSet<int> scratchAgentIds = new();
     /// <summary>Number of ECS entities. Reading reconciles the public Agents list first; no mutable registry is exposed.</summary>
     public int EntityCount { get { ValidateAgents(); SynchronizeEntities(); return entities.Count; } }
     /// <summary>Copies current component values for an agent ID after reconciliation. Brain is a shared mutable reference, not a deep copy.</summary>
@@ -387,8 +389,11 @@ public sealed partial class Simulation
     // may reorder, remove, replace or append agents; stale registry handles are destroyed before reuse.
     private void SynchronizeEntities()
     {
-        var currentIds = new HashSet<int>(Agents.Select(a => a.Id));
-        foreach (var pair in entityByAgentId.ToArray())
+        var currentIds = scratchAgentIds;
+        currentIds.Clear();
+        foreach (var agent in Agents) currentIds.Add(agent.Id);
+        // Dictionary.Remove is supported during enumeration on .NET 8; avoid a per-phase snapshot.
+        foreach (var pair in entityByAgentId)
             if (!currentIds.Contains(pair.Key))
             {
                 entities.Destroy(pair.Value);
@@ -417,7 +422,8 @@ public sealed partial class Simulation
 
     private void ValidateAgents()
     {
-        var ids = new HashSet<int>();
+        var ids = scratchAgentIds;
+        ids.Clear();
         foreach (var agent in Agents)
         {
             if (agent is null) throw new InvalidOperationException("Agent collection contains null.");
