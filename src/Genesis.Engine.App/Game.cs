@@ -57,6 +57,10 @@ internal static class Game
         var mapDrag = new MapInteractionController();
         var selectedId = -1;
         var showTerritories = false;
+        var showCivilizationPanel = false;
+        var selectedTribeId = -1;
+        var editingLimit = false;
+        var limitInput = "";
         var notice = "Мир развивается сам. Вы меняете условия жизни.";
         var smoke = !benchmarkMode && args.Contains("--smoke");
         var frames = 0;
@@ -82,21 +86,36 @@ internal static class Game
                     if (onMap && Raylib.IsKeyDown(KeyboardKey.LeftControl)) zoom = Math.Clamp(zoom + wheel * .15f, .7f, 4);
                     else radius = Math.Clamp(radius + wheel, 1, 20);
                     if (onMap && Raylib.IsMouseButtonDown(MouseButton.Middle)) pan += Raylib.GetMouseDelta();
-                    if (Raylib.IsKeyPressed(KeyboardKey.Space)) paused = !paused;
-                    if (Raylib.IsKeyPressed(KeyboardKey.T)) showTerritories = !showTerritories;
-                    if (Raylib.IsKeyPressed(KeyboardKey.One)) speed = 1;
-                    if (Raylib.IsKeyPressed(KeyboardKey.Two)) speed = 2;
-                    if (Raylib.IsKeyPressed(KeyboardKey.Three)) speed = 4;
-                    if (Raylib.IsKeyPressed(KeyboardKey.Home)) { pan = Vector2.Zero; zoom = 1; }
-                    if (Raylib.IsKeyPressed(KeyboardKey.R)) { simulation = new Simulation(seed: simulation.Seed + 1); selectedId = -1; accumulator = 0; mapDrag.Reset(); notice = "Создан новый мир"; }
-                    if (Raylib.IsKeyPressed(KeyboardKey.F5))
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.Space)) paused = !paused;
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.T)) showTerritories = !showTerritories;
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.C)) showCivilizationPanel = !showCivilizationPanel;
+                    if (editingLimit)
+                    {
+                        int key;
+                        while ((key = Raylib.GetCharPressed()) != 0)
+                            if (key >= '0' && key <= '9' && limitInput.Length < 5) limitInput += (char)key;
+                        if (Raylib.IsKeyPressed(KeyboardKey.Backspace) && limitInput.Length > 0) limitInput = limitInput[..^1];
+                        if (Raylib.IsKeyPressed(KeyboardKey.Escape)) { editingLimit = false; limitInput = ""; }
+                        if (Raylib.IsKeyPressed(KeyboardKey.Enter))
+                        {
+                            if (int.TryParse(limitInput, out int requested) && requested >= Simulation.MinimumPopulationLimit && requested <= Simulation.AbsoluteMaximumPopulation)
+                            { simulation.SetPopulationLimit(requested); notice = $"Лимит жителей: {requested}"; editingLimit = false; }
+                            else notice = $"Допустимый лимит: {Simulation.MinimumPopulationLimit}–{Simulation.AbsoluteMaximumPopulation}";
+                        }
+                    }
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.One)) speed = 1;
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.Two)) speed = 2;
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.Three)) speed = 4;
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.Home)) { pan = Vector2.Zero; zoom = 1; }
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.R)) { int chosenLimit = simulation.PopulationLimit; simulation = new Simulation(seed: simulation.Seed + 1); simulation.SetPopulationLimit(chosenLimit); selectedId = -1; selectedTribeId = -1; accumulator = 0; mapDrag.Reset(); notice = "Создан новый мир"; }
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.F5))
                     {
                         try { WorldFile.Save(simulation, savePath); notice = "Мир сохранён: " + savePath; }
                         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { notice = "Не удалось сохранить: " + e.Message; }
                     }
-                    if (Raylib.IsKeyPressed(KeyboardKey.F9))
+                    if (!editingLimit && Raylib.IsKeyPressed(KeyboardKey.F9))
                     {
-                        try { simulation = WorldFile.Load(savePath); selectedId = -1; accumulator = 0; mapDrag.Reset(); notice = "Мир загружен"; }
+                        try { simulation = WorldFile.Load(savePath); selectedId = -1; selectedTribeId = -1; accumulator = 0; mapDrag.Reset(); notice = "Мир загружен"; }
                         catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or NotSupportedException) { notice = "Не удалось загрузить: " + e.Message; }
                     }
                 }
@@ -149,7 +168,7 @@ internal static class Game
                 Raylib.DrawRectangle(0, 0, width, Top, new Color(23, 32, 38, 255));
                 Text("GENESIS", 22, 12, 25, new Color(147, 223, 177, 255));
                 Text("ЛАБОРАТОРИЯ ЖИВОГО МИРА", 23, 43, 12, Muted);
-                Text($"Жители  {simulation.Agents.Count}/{Simulation.MaximumPopulation}     Племена  {simulation.Tribes.Count}     Поколение  {(simulation.Agents.Count == 0 ? 0 : simulation.Agents.Max(a => a.Generation))}", 322, 14, 19, Ink);
+                Text($"Жители  {simulation.Agents.Count}/{simulation.PopulationLimit}     Племена  {simulation.Tribes.Count}     Поколение  {(simulation.Agents.Count == 0 ? 0 : simulation.Agents.Max(a => a.Generation))}", 322, 14, 19, Ink);
                 Text($"Время  {simulation.Tick / 30f:0} с    •    {speed}×    •    Видов {simulation.SpeciesCount}    •    {(paused ? "Пауза" : "Жизнь продолжается")}", 322, 42, 16, Muted);
                 if (Button(new(width - 244, 20, 102, 34), paused ? "Продолжить" : "Пауза", paused)) paused = !paused;
                 if (Button(new(width - 130, 20, 108, 34), $"Скорость {speed}×", false)) speed = speed == 4 ? 1 : speed * 2;
@@ -164,39 +183,66 @@ internal static class Game
                 var chosen = Tools.First(t => t.Tool == tool);
                 Text(chosen.Name, 20, 435, 21, new Color(147, 223, 177, 255));
                 Wrap(chosen.Hint, 20, 464, 260, 15, Muted);
-                Text($"Радиус кисти: {radius:0}", 20, 510, 16, Ink);
-                Text("Колесо — кисть • Ctrl+колесо — масштаб", 20, 531, 12, Muted);
-                Text("ЛКМ+движение — карта • клик — действие", 20, 550, 12, Muted);
-                Text("Shift+ЛКМ — рисовать • СКМ — карта", 20, 569, 12, Muted);
+                Text($"Радиус кисти: {radius:0}", 20, 502, 16, Ink);
+                var limitButton = new Rectangle(16, 525, 268, 34);
+                if (Button(limitButton, editingLimit ? $"Лимит: {limitInput}_ (Enter)" : $"Лимит жителей: {simulation.PopulationLimit} — изменить", editingLimit) && !editingLimit)
+                { editingLimit = true; limitInput = ""; }
+                Text("ЛКМ+движение — карта • клик — действие", 20, 568, 12, Muted);
+                Text("Shift+ЛКМ — кисть • Ctrl+колесо — масштаб", 20, 585, 12, Muted);
+                var civilizationButton = new Rectangle(16, 602, 268, 30);
+                if (Button(civilizationButton, showCivilizationPanel ? "Цивилизации: скрыть" : "Цивилизации: открыть", showCivilizationPanel))
+                    showCivilizationPanel = !showCivilizationPanel;
                 var selected = simulation.Agents.FirstOrDefault(a => a.Id == selectedId);
-                if (selected != null)
+                if (showCivilizationPanel)
                 {
-                    Text($"Житель №{selected.Id} · Вид {selected.SpeciesId}", 20, 595, 17, Ink);
-                    Text($"Возраст {selected.Age:0} с   Поколение {selected.Generation}", 20, 625, 14, Muted);
-                    Text($"Энергия {selected.Energy:0.00} / 3", 20, 648, 15, Ink);
-                    Text($"Скорость {selected.Genome.Speed:0.00}   Зрение {selected.Genome.Vision:0.0}", 20, 674, 14, Muted);
-                    Text($"Общительность {selected.Genome.Sociality:0.00}", 20, 698, 14, Muted);
-                    Text($"Агрессия {selected.Genome.Aggression:0.00}", 20, 722, 14, Muted);
-                    Text($"Мозг: {selected.Brain.HiddenNodeCount} узлов / {selected.Brain.ConnectionCount} связей", 20, 746, 13, Muted);
+                    var tribes = simulation.Tribes.OrderBy(t => t.Id).ToArray();
+                    var selectedTribe = tribes.FirstOrDefault(t => t.Id == selectedTribeId) ?? tribes.FirstOrDefault();
+                    if (selectedTribe is null) Text("Племена пока не возникли", 20, 645, 14, Muted);
+                    else
+                    {
+                        selectedTribeId = selectedTribe.Id;
+                        if (Button(new Rectangle(16, 639, 268, 29), $"Племя {selectedTribe.Id} • {PhaseName(selectedTribe.Phase)}  ›", false))
+                            selectedTribeId = tribes[(Array.IndexOf(tribes, selectedTribe) + 1) % tribes.Length].Id;
+                        Text($"Жители {selectedTribe.MemberIds.Count} Еда {selectedTribe.Food:0.0} Дерево {selectedTribe.Wood:0.0}", 20, 671, 11, Muted);
+                        Text($"Камень {selectedTribe.Stone:0.0} · опыт: еда {selectedTribe.FoodKnowledge:0.0} лес {selectedTribe.WoodKnowledge:0.0} камень {selectedTribe.StoneKnowledge:0.0}", 20, 686, 9, Muted);
+                        Text("Ветки: ✓ освоено / % изучено / — закрыто", 20, 700, 10, Ink);
+                        int techY = 715;
+                        foreach (var research in selectedTribe.Research)
+                        {
+                            string state = research.Unlocked ? "✓" : research.Available ? $"{research.Progress * 100:0}%" : "—";
+                            Text($"{BranchName(research.Branch)}: {TechName(research.Milestone)} {state}", 20, techY, 11, research.Unlocked ? Ink : Muted);
+                            techY += 15;
+                        }
+                    }
+                }
+                else if (selected != null)
+                {
+                    Text($"Житель №{selected.Id} · Вид {selected.SpeciesId}", 20, 608, 16, Ink);
+                    Text($"Возраст {selected.Age:0} с   Поколение {selected.Generation}", 20, 633, 13, Muted);
+                    Text($"Энергия {selected.Energy:0.00} / 3", 20, 653, 14, Ink);
+                    Text($"Скорость {selected.Genome.Speed:0.00}   Зрение {selected.Genome.Vision:0.0}", 20, 674, 13, Muted);
+                    Text($"Общительность {selected.Genome.Sociality:0.00}", 20, 695, 13, Muted);
+                    Text($"Агрессия {selected.Genome.Aggression:0.00}", 20, 716, 13, Muted);
+                    Text($"Мозг: {selected.Brain.HiddenNodeCount} узлов / {selected.Brain.ConnectionCount} связей", 20, 737, 12, Muted);
                 }
                 else
                 {
-                    Text("ЛЕТОПИСЬ МИРА", 20, 594, 16, Ink);
-                    int eventY = 622;
+                    Text("ЛЕТОПИСЬ МИРА", 20, 610, 16, Ink);
+                    int eventY = 633;
                     foreach (var entry in simulation.Events.TakeLast(3))
                     {
                         Wrap(entry, 20, eventY, 260, 13, Muted);
                         eventY += 44;
                     }
-                    if (simulation.Events.Count == 0) Wrap("Выберите «Наблюдать» и нажмите на жителя. Цвет одежды отражает его гены.", 20, 622, 260, 16, Muted);
+                    if (simulation.Events.Count == 0) Wrap("Выберите «Наблюдать» и нажмите на жителя. Цвет одежды отражает его гены.", 20, 633, 260, 16, Muted);
                 }
                 var mortality = simulation.Mortality;
-                Text($"УМЕРЛИ ЗА ВСЁ ВРЕМЯ: {mortality.LifetimeDeaths}", 20, 763, 14, Ink);
-                Text($"Возраст {mortality.OldAge} • Голод {mortality.EnergyDepletion}", 20, 782, 13, Muted);
-                Text($"Огонь {mortality.Fire} • Хищники {mortality.Predators}", 20, 799, 13, Muted);
-                Text($"Климат {mortality.Climate} • Другое {mortality.Other}", 20, 816, 13, Muted);
-                Text("F5 — сохранить   F9 — загрузить", 20, height - 103, 14, Ink);
-                Text("R — новый мир   Home — вид целиком", 20, height - 80, 13, Muted);
+                int mortalityY = height - 135;
+                Text($"Умерли {mortality.LifetimeDeaths} · возраст {mortality.OldAge} · голод {mortality.EnergyDepletion}", 20, mortalityY, 11, Ink);
+                Text($"Огонь {mortality.Fire} · хищники {mortality.Predators} · климат {mortality.Climate}", 20, mortalityY + 18, 11, Muted);
+                Text($"Прочие причины: {mortality.Other}", 20, mortalityY + 35, 11, Muted);
+                Text("F5 — сохранить   F9 — загрузить", 20, height - 90, 13, Ink);
+                Text("R — новый мир   Home — вид целиком", 20, height - 70, 12, Muted);
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));
                 Text(notice.Length > 110 ? notice[..110] + "..." : notice, Sidebar + 16, height - 29, 14, Muted);
                 benchmark?.BeginPresent();
@@ -220,6 +266,21 @@ internal static class Game
         }
         finally { WorldRenderer.Unload(); Raylib.UnloadFont(font); Raylib.CloseWindow(); }
     }
+    static string PhaseName(CivilizationPhase phase) => phase switch
+    {
+        CivilizationPhase.Early => "Первые поселения", CivilizationPhase.Settled => "Поселение",
+        CivilizationPhase.Skilled => "Ремёсла", _ => "Развитое общество"
+    };
+    static string BranchName(CivilizationBranch branch) => branch switch
+    {
+        CivilizationBranch.Food => "Питание", CivilizationBranch.Craft => "Ремесло", _ => "Защита"
+    };
+    static string TechName(CivilizationMilestone milestone) => milestone switch
+    {
+        CivilizationMilestone.Farming => "Земледелие", CivilizationMilestone.Weapons => "Оружие",
+        CivilizationMilestone.Toolmaking => "Орудия", CivilizationMilestone.Medicine => "Лечение",
+        CivilizationMilestone.Fireproofing => "Просеки", _ => "Освоено"
+    };
     static float Distance(Vec2 a, Vec2 b) => MathF.Sqrt((a.X - b.X) * (a.X - b.X) + (a.Y - b.Y) * (a.Y - b.Y));
     internal static void Text(string text, float x, float y, float size, Color color) => Raylib.DrawTextEx(font, text, new Vector2(x, y), size, .3f, color);
     static bool Button(Rectangle rect, string text, bool selected)

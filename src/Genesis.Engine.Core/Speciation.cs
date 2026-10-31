@@ -136,7 +136,7 @@ public sealed partial class Simulation
 
     private void RestoreLineages(SpeciesLineageSave[]? saved, long next)
     {
-        if (saved is null || saved.Length > MaximumPopulation || next < 0 || next > (long)int.MaxValue + 1)
+        if (saved is null || saved.Length > AbsoluteMaximumPopulation || next < 0 || next > (long)int.MaxValue + 1)
             throw new ArgumentException("Invalid lineage snapshot.");
         lineages.Clear();
         var ids = new HashSet<int>();

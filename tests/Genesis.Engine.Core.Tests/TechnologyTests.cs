@@ -16,7 +16,8 @@ public class TechnologyTests
         Array.Fill(data.Food, 0);
         Array.Fill(data.Environment, new EnvironmentCell(.2f, 22, .7f, .7f, .7f, 0));
         data.Tribes = [new TribeSave { Id = 0, Center = new(5, 5), Members = [200], Age = age,
-            Wood = 10, Stone = 10, Food = 10, HasWeapons = true, HasFarming = true }];
+            Wood = 10, Stone = 10, Food = 10, WoodKnowledge = 10, StoneKnowledge = 10, FoodKnowledge = 10,
+            HasWeapons = true, HasFarming = true }];
         data.Structures = [new Structure(StructureKind.Hut, new(5, 5), 0)];
         return data;
     }
@@ -29,6 +30,8 @@ public class TechnologyTests
         world.Step(1);
         var tribe = Assert.Single(world.Tribes);
         Assert.True(tribe.HasToolmaking);
+        Assert.False(tribe.HasMedicine && tribe.HasFireproofing); // At most one discovery per decision.
+        for (int i = 0; i < 5; i++) world.Step(1);
         Assert.True(tribe.HasMedicine);
         Assert.True(tribe.HasFireproofing);
         Assert.Contains(world.Events, e => e.Contains("изготовление орудий"));

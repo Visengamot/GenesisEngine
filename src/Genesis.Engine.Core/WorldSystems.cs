@@ -59,7 +59,7 @@ public sealed partial class Simulation
         {
             if (position != Clamp(position)) return;
             if (tool == GodTool.Predator && predators.Count < 64) predators.Add(new(position));
-            if (tool == GodTool.People && Agents.Count < MaximumPopulation)
+            if (tool == GodTool.People && Agents.Count < PopulationLimit)
             {
                 ValidateAgents();
                 if (nextId <= int.MaxValue) SpawnAgent(position);

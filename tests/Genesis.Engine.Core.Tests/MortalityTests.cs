@@ -97,7 +97,7 @@ public class MortalityTests
         original.Step(1);
         string snapshot = original.SaveJson();
         var data = JsonSerializer.Deserialize<WorldSave>(snapshot)!;
-        Assert.Equal(5, data.Version);
+        Assert.Equal(6, data.Version);
         Assert.Equal(original.Mortality, data.Mortality);
         var restored = Simulation.LoadJson(snapshot);
         Assert.Equal(snapshot, restored.SaveJson());
@@ -112,7 +112,7 @@ public class MortalityTests
             data.Version = version;
             var legacy = Simulation.LoadJson(JsonSerializer.Serialize(data));
             Assert.Equal(default, legacy.Mortality);
-            Assert.Equal(5, JsonSerializer.Deserialize<WorldSave>(legacy.SaveJson())!.Version);
+            Assert.Equal(6, JsonSerializer.Deserialize<WorldSave>(legacy.SaveJson())!.Version);
         }
     }
 

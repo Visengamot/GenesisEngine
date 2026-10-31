@@ -240,7 +240,19 @@ public readonly record struct AgentEntitySnapshot(PositionComponent Position, Vi
 /// <summary>Single-threaded seeded prototype. Each positive Step is one tick; zero is a no-op.</summary>
 public sealed partial class Simulation
 {
+    /// <summary>The default per-world population cap, retained for compatibility.</summary>
     public const int MaximumPopulation = 1000;
+    public const int MinimumPopulationLimit = 80;
+    public const int AbsoluteMaximumPopulation = 5000;
+    /// <summary>Current per-world cap. Lowering it never removes existing agents; births and spawns resume below the cap.</summary>
+    public int PopulationLimit { get; private set; } = MaximumPopulation;
+    public void SetPopulationLimit(int limit)
+    {
+        if (limit < MinimumPopulationLimit || limit > AbsoluteMaximumPopulation)
+            throw new ArgumentOutOfRangeException(nameof(limit),
+                $"Population limit must be between {MinimumPopulationLimit} and {AbsoluteMaximumPopulation}.");
+        PopulationLimit = limit;
+    }
     public const float BirthCostPerParent = .8f;
     public const float MaximumAge = 90;
     // Procedural hills stay traversable; only deliberately sculpted deep water and peaks block agents.
@@ -470,7 +482,7 @@ public sealed partial class Simulation
     private void Reproduce(float dt)
     {
         RefreshSpecies();
-        if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) return;
+        if (Agents.Count >= PopulationLimit || nextId > int.MaxValue) return;
         var sizes = Species.ToDictionary(s => s.Id, s => s.MemberCount);
         // Online fitness sharing prioritizes rare compatible groups when local mates/capacity are scarce.
         // This is steady-state ecological selection, not generations, species quotas or full NEAT.
@@ -480,7 +492,7 @@ public sealed partial class Simulation
         var used = new HashSet<int>();
         foreach (var parent in parents)
         {
-            if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) break;
+            if (Agents.Count >= PopulationLimit || nextId > int.MaxValue) break;
             if (used.Contains(parent.Id)) continue;
             bool Available(Agent a) => a.Id != parent.Id && !used.Contains(a.Id) &&
                 Math.Abs(a.Position.X - parent.Position.X) <= 3 && Math.Abs(a.Position.Y - parent.Position.Y) <= 3;
@@ -489,7 +501,7 @@ public sealed partial class Simulation
             if (mate is null) continue;
             // Territorial crowding reduces successful matings smoothly; it is not a soft population cap.
             // Competition for sites lowers birth success at high density, but never directly kills an agent.
-            float crowding = (float)Agents.Count / MaximumPopulation;
+            float crowding = (float)Agents.Count / PopulationLimit;
             float freeSpace = 1 - crowding;
             float birthRate = .32f * freeSpace * freeSpace * freeSpace;
             if (random.NextSingle() >= 1 - MathF.Exp(-birthRate * dt)) continue;
@@ -522,7 +534,7 @@ public sealed partial class Simulation
         Guard.Position(position, nameof(position));
         if (position != Clamp(position)) throw new ArgumentOutOfRangeException(nameof(position));
         ValidateAgents();
-        if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) throw new InvalidOperationException("Population or ID capacity reached.");
+        if (Agents.Count >= PopulationLimit || nextId > int.MaxValue) throw new InvalidOperationException("Population or ID capacity reached.");
         var agent = new Agent((int)nextId++, position, Genome.Random(random), NeuralNetwork.CreateForager(random.Next())) { Heading = RandomHeading() };
         Agents.Add(agent);
         RefreshSpecies();

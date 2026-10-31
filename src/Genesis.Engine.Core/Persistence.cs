@@ -14,7 +14,8 @@ public sealed partial class Simulation
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 5,
+            Version = 6,
+            PopulationLimit = PopulationLimit,
             Mortality = Mortality,
             NextSpeciesId = nextSpeciesId,
             Lineages = SaveLineages(),
@@ -54,6 +55,9 @@ public sealed partial class Simulation
                 Stone = t.Stone,
                 Food = t.Food,
                 Age = t.Age,
+                FoodKnowledge = t.FoodKnowledge,
+                WoodKnowledge = t.WoodKnowledge,
+                StoneKnowledge = t.StoneKnowledge,
                 HasWeapons = t.HasWeapons,
                 HasFarming = t.HasFarming,
                 HasToolmaking = t.HasToolmaking,
@@ -74,8 +78,10 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2 or 3 or 4 or 5)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
-        if (d.Version == 5)
+        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version >= 6 && (d.PopulationLimit < MinimumPopulationLimit || d.PopulationLimit > AbsoluteMaximumPopulation))
+            throw new ArgumentException("Invalid population limit.");
+        if (d.Version >= 5)
         {
             var m = d.Mortality ?? throw new ArgumentException("Missing mortality counters.");
             if (m.LifetimeDeaths < 0 || m.OldAge < 0 || m.EnergyDepletion < 0 || m.Fire < 0 ||
@@ -87,13 +93,14 @@ public sealed partial class Simulation
             throw new ArgumentException("Invalid random state or journal.");
         if (d.Width <= 0 || d.Height <= 0 || (long)d.Width * d.Height > 1_000_000) throw new ArgumentException("Invalid snapshot dimensions.");
         int count = d.Width * d.Height;
-        if (d.Terrain?.Length != count || d.Food?.Length != count || d.Environment?.Length != count || d.Agents is null || d.Agents.Length > MaximumPopulation ||
+        if (d.Terrain?.Length != count || d.Food?.Length != count || d.Environment?.Length != count || d.Agents is null || d.Agents.Length > AbsoluteMaximumPopulation ||
             d.Predators is null || d.Predators.Length > 64 || d.Tribes is null || d.Tribes.Length > 32 || d.Structures is null || d.Structures.Length > 128 || d.Relations is null || d.Relations.Length > 496 || d.Tick < 0 || d.NextId < 0 || d.NextId > (long)int.MaxValue + 1 || d.NextTribeId < 0)
             throw new ArgumentException("Invalid snapshot collections or counters.");
         Range(d.CivilizationClock, 0, 2);
         var sim = new Simulation(d.Width, d.Height, d.Seed);
+        sim.SetPopulationLimit(d.Version >= 6 ? d.PopulationLimit : MaximumPopulation);
         sim.Agents.Clear(); sim.Tick = d.Tick; sim.nextId = d.NextId; sim.nextTribeId = d.NextTribeId; sim.civilizationClock = d.CivilizationClock;
-        sim.Mortality = d.Version == 5 ? d.Mortality!.Value : default; // Pre-v5 deaths cannot be inferred reliably.
+        sim.Mortality = d.Version >= 5 ? d.Mortality!.Value : default; // Pre-v5 deaths cannot be inferred reliably.
         for (int y = 0; y < d.Height; y++)
             for (int x = 0; x < d.Width; x++)
             {
@@ -105,7 +112,7 @@ public sealed partial class Simulation
         foreach (var a in d.Agents)
         {
             if (a is null || a.Traits?.Length != 7 || a.Brain is null || a.Generation < 0 || a.OffspringCount < 0) throw new ArgumentException("Invalid agent snapshot.");
-            Range(a.Energy, 0, 3); Range(a.Age, 0, MaximumAge + 1); Guard.Position(a.Heading, nameof(a.Heading));
+            Range(a.Energy, 0, 3); Range(a.Age, 0, d.Version <= 5 ? 181 : MaximumAge + 1); Guard.Position(a.Heading, nameof(a.Heading));
             float[] g = a.Traits;
             Range(g[0], .1f, 3); Range(g[1], .25f, 3); Range(g[2], 1, 12); Range(g[3], .1f, 3);
             Range(g[4], 0, 1); Range(g[5], 0, 1); Range(g[6], 0, 1);
@@ -135,9 +142,12 @@ public sealed partial class Simulation
         var ids = sim.Agents.Select(a => a.Id).ToHashSet(); var tribeIds = new HashSet<int>(); var memberIds = new HashSet<int>();
         foreach (var t in d.Tribes)
         {
-            if (t is null || t.Id < 0 || !tribeIds.Add(t.Id) || t.Members is null || t.Members.Length > MaximumPopulation || t.Members.Any(id => !ids.Contains(id) || !memberIds.Add(id))) throw new ArgumentException("Invalid tribe membership.");
+            if (t is null || t.Id < 0 || !tribeIds.Add(t.Id) || t.Members is null || t.Members.Length > AbsoluteMaximumPopulation || t.Members.Any(id => !ids.Contains(id) || !memberIds.Add(id))) throw new ArgumentException("Invalid tribe membership.");
             Position(t.Center); Range(t.Wood, 0, 100); Range(t.Stone, 0, 100); Range(t.Food, 0, 100); Range(t.Age, 0, float.MaxValue);
-            var tribe = new Tribe { Id = t.Id, Center = t.Center, Wood = t.Wood, Stone = t.Stone, Food = t.Food, Age = t.Age, HasWeapons = t.HasWeapons, HasFarming = t.HasFarming,
+            if (d.Version >= 6) { Range(t.FoodKnowledge, 0, CivilizationProgression.MaximumKnowledge); Range(t.WoodKnowledge, 0, CivilizationProgression.MaximumKnowledge); Range(t.StoneKnowledge, 0, CivilizationProgression.MaximumKnowledge); }
+            var tribe = new Tribe { Id = t.Id, Center = t.Center, Wood = t.Wood, Stone = t.Stone, Food = t.Food, Age = t.Age,
+                FoodKnowledge = d.Version >= 6 ? t.FoodKnowledge : 0, WoodKnowledge = d.Version >= 6 ? t.WoodKnowledge : 0, StoneKnowledge = d.Version >= 6 ? t.StoneKnowledge : 0,
+                HasWeapons = t.HasWeapons, HasFarming = t.HasFarming,
                 HasToolmaking = d.Version >= 3 && t.HasToolmaking, HasMedicine = d.Version >= 3 && t.HasMedicine,
                 HasFireproofing = d.Version >= 3 && t.HasFireproofing };
             tribe.MemberIds.AddRange(t.Members); sim.tribes.Add(tribe);
@@ -147,7 +157,7 @@ public sealed partial class Simulation
         foreach (var p in d.Predators)
         { if (p is null) throw new ArgumentException("Invalid predator."); Position(p.Position); Range(p.Energy, 0, 3); sim.predators.Add(new(p.Position) { Energy = p.Energy }); }
         foreach (var s in d.Structures)
-        { if (s is null || !Enum.IsDefined(s.Kind) || s.TribeId < 0) throw new ArgumentException("Invalid structure."); Position(s.Position); sim.structures.Add(s); }
+        { if (s is null || !Enum.IsDefined(s.Kind) || s.TribeId < 0 || (d.Version >= 6 && !tribeIds.Contains(s.TribeId))) throw new ArgumentException("Invalid structure."); Position(s.Position); if (tribeIds.Contains(s.TribeId)) sim.structures.Add(s); }
         foreach (var r in d.Relations)
         { if (r is null || !Enum.IsDefined(r.Relation) || !tribeIds.Contains(r.FirstTribeId) || !tribeIds.Contains(r.SecondTribeId) || r.FirstTribeId == r.SecondTribeId) throw new ArgumentException("Invalid relation."); sim.relations.Add(r); }
         if (d.Version >= 2)
@@ -172,6 +182,7 @@ public sealed class WorldSave
     public int Height { get; set; }
     public int Seed { get; set; }
     public long Tick { get; set; }
+    public int PopulationLimit { get; set; }
     public MortalityStatistics? Mortality { get; set; }
     public long NextId { get; set; }
     public long NextSpeciesId { get; set; }
@@ -216,6 +227,9 @@ public sealed class TribeSave
     public float Stone { get; set; }
     public float Food { get; set; }
     public float Age { get; set; }
+    public float FoodKnowledge { get; set; }
+    public float WoodKnowledge { get; set; }
+    public float StoneKnowledge { get; set; }
     public bool HasWeapons { get; set; }
     public bool HasFarming { get; set; }
     public bool HasToolmaking { get; set; }

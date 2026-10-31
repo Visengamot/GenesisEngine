@@ -5,7 +5,7 @@ public enum TribalRelation { Neutral, Alliance, War }
 public sealed record Structure(StructureKind Kind, Vec2 Position, int TribeId);
 public sealed record TribeRelation(int FirstTribeId, int SecondTribeId, TribalRelation Relation);
 
-/// <summary>Small rule-based settlements, not an emergent historical or political model.</summary>
+/// <summary>Small rule-based settlements with resource-earned, per-tribe cultural progression.</summary>
 public sealed class Tribe
 {
     public int Id { get; internal set; }
@@ -20,6 +20,24 @@ public sealed class Tribe
     public bool HasMedicine { get; internal set; }
     public bool HasFireproofing { get; internal set; }
     public float Age { get; internal set; }
+    // Cumulative experience comes only from goods actually harvested from world cells.
+    public float FoodKnowledge { get; internal set; }
+    public float WoodKnowledge { get; internal set; }
+    public float StoneKnowledge { get; internal set; }
+
+    /// <summary>Current civilization stage; known inventions, not time elapsed, determine the stage.</summary>
+    public CivilizationPhase Phase => HasFireproofing && HasMedicine ? CivilizationPhase.Advanced :
+        HasMedicine || HasFireproofing || HasToolmaking ? CivilizationPhase.Skilled :
+        HasFarming || HasWeapons ? CivilizationPhase.Settled : CivilizationPhase.Early;
+
+    /// <summary>The next eligible invention in the deterministic research order.</summary>
+    public CivilizationMilestone NextMilestone => CivilizationProgression.NextMilestone(this);
+
+    /// <summary>Experience and available investment towards that invention (0 to 1).</summary>
+    public float MilestoneProgress => CivilizationProgression.Progress(this, NextMilestone);
+
+    /// <summary>Ordered, read-only technology tree for UI, including locked prerequisites.</summary>
+    public IReadOnlyList<CivilizationResearch> Research => CivilizationProgression.Tree(this);
 }
 
 public sealed partial class Simulation
@@ -46,6 +64,10 @@ public sealed partial class Simulation
         var available = social.ToDictionary(a => a.Id);
         foreach (var t in tribes) t.MemberIds.RemoveAll(id => !available.ContainsKey(id));
         tribes.RemoveAll(t => t.MemberIds.Count == 0);
+        // Extinct settlements cannot reserve scarce structure slots or retain stale diplomacy.
+        var survivingIds = tribes.Select(t => t.Id).ToHashSet();
+        structures.RemoveAll(s => !survivingIds.Contains(s.TribeId));
+        relations.RemoveAll(r => !survivingIds.Contains(r.FirstTribeId) || !survivingIds.Contains(r.SecondTribeId));
         var assigned = tribes.SelectMany(t => t.MemberIds).ToHashSet();
         foreach (var a in social)
         {
@@ -75,17 +97,12 @@ public sealed partial class Simulation
                 Environment.Set(x, y, c with { Wood = c.Wood - wood, Stone = c.Stone - stone });
                 Food.Set(x, y, Food.Get(x, y) - food);
                 t.Wood = Math.Min(100, t.Wood + wood); t.Stone = Math.Min(100, t.Stone + stone); t.Food = Math.Min(100, t.Food + food);
+                // No experience for unharvested stock, elapsed age, or goods received by trade.
+                t.WoodKnowledge = Math.Min(CivilizationProgression.MaximumKnowledge, t.WoodKnowledge + wood);
+                t.StoneKnowledge = Math.Min(CivilizationProgression.MaximumKnowledge, t.StoneKnowledge + stone);
+                t.FoodKnowledge = Math.Min(CivilizationProgression.MaximumKnowledge, t.FoodKnowledge + food);
             }
-            if (!t.HasFarming && t.Age >= 10 && t.Wood >= .5f && t.Food >= .1f) { t.Wood -= .5f; t.Food -= .1f; t.HasFarming = true; RecordEvent($"Племя {t.Id} освоило земледелие."); }
-            if (!t.HasWeapons && t.Age >= 15 && t.Wood >= .3f && t.Stone >= .5f) { t.Wood -= .3f; t.Stone -= .5f; t.HasWeapons = true; RecordEvent($"Племя {t.Id} освоило оружие."); }
-            // Explicit prerequisites, elapsed time and one-time material investment; the effects below
-            // still require recurring stock rather than producing resources or permanent protection.
-            if (!t.HasToolmaking && t.HasWeapons && t.Age >= 20 && t.Wood >= .4f && t.Stone >= .6f)
-            { t.Wood -= .4f; t.Stone -= .6f; t.HasToolmaking = true; RecordEvent($"Племя {t.Id} освоило изготовление орудий."); }
-            if (!t.HasMedicine && t.HasFarming && t.Age >= 25 && t.Wood >= .3f && t.Food >= .6f)
-            { t.Wood -= .3f; t.Food -= .6f; t.HasMedicine = true; RecordEvent($"Племя {t.Id} освоило лечение."); }
-            if (!t.HasFireproofing && t.HasToolmaking && t.Age >= 30 && t.Stone >= .8f && t.Wood >= .2f)
-            { t.Stone -= .8f; t.Wood -= .2f; t.HasFireproofing = true; RecordEvent($"Племя {t.Id} освоило противопожарные просеки."); }
+            AdvanceCivilization(t);
             Build(t, StructureKind.Hut, .6f, .2f, true);
             Build(t, StructureKind.Farm, .5f, .1f, t.HasFarming);
             BuildRoad(t);
