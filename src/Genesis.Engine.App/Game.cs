@@ -8,6 +8,7 @@ internal static class Game
 {
     const int Sidebar = 300, Top = 74, Bottom = 42;
     static Font font;
+    static bool benchmarkMode;
     static readonly Color Ink = new(222, 231, 225, 255);
     static readonly Color Muted = new(144, 162, 160, 255);
     static readonly (GodTool Tool, string Name, string Hint)[] Tools =
@@ -30,16 +31,18 @@ internal static class Game
 
     public static int Run(string[] args)
     {
+        benchmarkMode = args.Contains("--benchmark-render");
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
         Raylib.InitWindow(1480, 940, "Genesis Engine — Живой мир");
         Raylib.SetWindowMinSize(1100, 900);
-        Raylib.SetTargetFPS(60);
+        Raylib.SetTargetFPS(benchmarkMode ? 0 : 60);
         var fontPath = Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.Fonts), "segoeui.ttf");
         if (!File.Exists(fontPath)) { Raylib.CloseWindow(); Console.Error.WriteLine("Не найден системный шрифт Segoe UI: " + fontPath); return 1; }
         var codepoints = Enumerable.Range(32, 95).Concat(Enumerable.Range(0x400, 256)).Concat(new[] { 0x2014, 0x2013, 0x00D7, 0x2116 }).ToArray();
         font = Raylib.LoadFontEx(fontPath, 32, codepoints, codepoints.Length);
         Raylib.SetTextureFilter(font.Texture, TextureFilter.Bilinear);
-        var simulation = new Simulation();
+        var benchmark = benchmarkMode ? new RenderBenchmark() : null;
+        var simulation = benchmark?.CreateSimulation() ?? new Simulation();
         var tool = GodTool.Inspect;
         var radius = 4f;
         var paused = false;
@@ -50,13 +53,14 @@ internal static class Game
         var selectedId = -1;
         var showTerritories = false;
         var notice = "Мир развивается сам. Вы меняете условия жизни.";
-        var smoke = args.Contains("--smoke");
+        var smoke = !benchmarkMode && args.Contains("--smoke");
         var frames = 0;
         var savePath = Path.Combine(AppContext.BaseDirectory, "Saves", "world.json");
         try
         {
             while (!Raylib.WindowShouldClose())
             {
+                benchmark?.BeginFrame(simulation);
                 int width = Raylib.GetScreenWidth(), height = Raylib.GetScreenHeight();
                 var mapArea = new Rectangle(Sidebar, Top, width - Sidebar, height - Top - Bottom);
                 var mouse = Raylib.GetMousePosition();
@@ -66,30 +70,33 @@ internal static class Game
                 float cell = baseCell * zoom;
                 var origin = new Vector2(mapArea.X + (mapArea.Width - simulation.Terrain.Width * cell) / 2,
                     mapArea.Y + (mapArea.Height - simulation.Terrain.Height * cell) / 2) + pan;
-                float wheel = Raylib.GetMouseWheelMove();
-                if (onMap && Raylib.IsKeyDown(KeyboardKey.LeftControl)) zoom = Math.Clamp(zoom + wheel * .15f, .7f, 4);
-                else radius = Math.Clamp(radius + wheel, 1, 20);
-                if (onMap && Raylib.IsMouseButtonDown(MouseButton.Middle)) pan += Raylib.GetMouseDelta();
-                if (Raylib.IsKeyPressed(KeyboardKey.Space)) paused = !paused;
-                if (Raylib.IsKeyPressed(KeyboardKey.T)) showTerritories = !showTerritories;
-                if (Raylib.IsKeyPressed(KeyboardKey.One)) speed = 1;
-                if (Raylib.IsKeyPressed(KeyboardKey.Two)) speed = 2;
-                if (Raylib.IsKeyPressed(KeyboardKey.Three)) speed = 4;
-                if (Raylib.IsKeyPressed(KeyboardKey.Home)) { pan = Vector2.Zero; zoom = 1; }
-                if (Raylib.IsKeyPressed(KeyboardKey.R)) { simulation = new Simulation(seed: simulation.Seed + 1); selectedId = -1; accumulator = 0; notice = "Создан новый мир"; }
-                if (Raylib.IsKeyPressed(KeyboardKey.F5))
+                if (!benchmarkMode)
                 {
-                    try { Directory.CreateDirectory(Path.GetDirectoryName(savePath)!); File.WriteAllText(savePath, simulation.SaveJson()); notice = "Мир сохранён: " + savePath; }
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { notice = "Не удалось сохранить: " + e.Message; }
-                }
-                if (Raylib.IsKeyPressed(KeyboardKey.F9))
-                {
-                    try { simulation = Simulation.LoadJson(File.ReadAllText(savePath)); selectedId = -1; accumulator = 0; notice = "Мир загружен"; }
-                    catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or NotSupportedException) { notice = "Не удалось загрузить: " + e.Message; }
+                    float wheel = Raylib.GetMouseWheelMove();
+                    if (onMap && Raylib.IsKeyDown(KeyboardKey.LeftControl)) zoom = Math.Clamp(zoom + wheel * .15f, .7f, 4);
+                    else radius = Math.Clamp(radius + wheel, 1, 20);
+                    if (onMap && Raylib.IsMouseButtonDown(MouseButton.Middle)) pan += Raylib.GetMouseDelta();
+                    if (Raylib.IsKeyPressed(KeyboardKey.Space)) paused = !paused;
+                    if (Raylib.IsKeyPressed(KeyboardKey.T)) showTerritories = !showTerritories;
+                    if (Raylib.IsKeyPressed(KeyboardKey.One)) speed = 1;
+                    if (Raylib.IsKeyPressed(KeyboardKey.Two)) speed = 2;
+                    if (Raylib.IsKeyPressed(KeyboardKey.Three)) speed = 4;
+                    if (Raylib.IsKeyPressed(KeyboardKey.Home)) { pan = Vector2.Zero; zoom = 1; }
+                    if (Raylib.IsKeyPressed(KeyboardKey.R)) { simulation = new Simulation(seed: simulation.Seed + 1); selectedId = -1; accumulator = 0; notice = "Создан новый мир"; }
+                    if (Raylib.IsKeyPressed(KeyboardKey.F5))
+                    {
+                        try { WorldFile.Save(simulation, savePath); notice = "Мир сохранён: " + savePath; }
+                        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { notice = "Не удалось сохранить: " + e.Message; }
+                    }
+                    if (Raylib.IsKeyPressed(KeyboardKey.F9))
+                    {
+                        try { simulation = WorldFile.Load(savePath); selectedId = -1; accumulator = 0; notice = "Мир загружен"; }
+                        catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException or System.Text.Json.JsonException or InvalidOperationException or NotSupportedException) { notice = "Не удалось загрузить: " + e.Message; }
+                    }
                 }
                 var point = new Vec2((mouse.X - origin.X) / cell, (mouse.Y - origin.Y) / cell);
                 bool inside = onMap && point.X >= 0 && point.Y >= 0 && point.X < simulation.Terrain.Width && point.Y < simulation.Terrain.Height;
-                if (inside)
+                if (inside && !benchmarkMode)
                 {
                     if (tool == GodTool.Inspect && Raylib.IsMouseButtonPressed(MouseButton.Left))
                     {
@@ -103,11 +110,15 @@ internal static class Game
                             simulation.ApplyTool(tool, point, radius, single ? 1 : elapsed * 2);
                     }
                 }
-                if (!paused)
+                benchmark?.BeginStep();
+                if (benchmarkMode) simulation.Step(1f / 30);
+                else if (!paused)
                 {
                     accumulator += elapsed * speed;
                     while (accumulator >= 1f / 30) { simulation.Step(1f / 30); accumulator -= 1f / 30; }
                 }
+                benchmark?.EndStep();
+                benchmark?.BeginDraw();
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(new Color(16, 23, 28, 255));
                 Raylib.BeginScissorMode((int)mapArea.X, (int)mapArea.Y, (int)mapArea.Width, (int)mapArea.Height);
@@ -166,14 +177,21 @@ internal static class Game
                 Text("R — новый мир   Home — вид целиком", 20, height - 80, 13, Muted);
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));
                 Text(notice.Length > 110 ? notice[..110] + "..." : notice, Sidebar + 16, height - 29, 14, Muted);
+                benchmark?.BeginPresent();
                 Raylib.EndDrawing();
+                if (benchmark != null && benchmark.EndFrame(simulation))
+                {
+                    if (benchmark.IsComplete) break;
+                    simulation = benchmark.CreateSimulation();
+                }
                 if (smoke && ++frames >= 120)
                 {
                     Raylib.TakeScreenshot("genesis-preview.png");
                     break;
                 }
             }
-            return 0;
+            benchmark?.Save();
+            return benchmark != null && !benchmark.IsComplete ? 2 : 0;
         }
         finally { Raylib.UnloadFont(font); Raylib.CloseWindow(); }
     }
@@ -184,7 +202,7 @@ internal static class Game
         bool hover = Raylib.CheckCollisionPointRec(Raylib.GetMousePosition(), rect);
         Raylib.DrawRectangleRounded(rect, .16f, 4, selected ? new Color(55, 105, 83, 255) : hover ? new Color(56, 73, 79, 255) : new Color(36, 49, 55, 255));
         Text(text, rect.X + 10, rect.Y + 8, 15, selected ? Color.White : Ink);
-        return hover && Raylib.IsMouseButtonPressed(MouseButton.Left);
+        return !benchmarkMode && hover && Raylib.IsMouseButtonPressed(MouseButton.Left);
     }
     static void Wrap(string text, float x, float y, float width, float size, Color color)
     {

@@ -87,7 +87,9 @@ public class WorldSystemsTests
         Assert.Equal(original.Agents[0].Genome, restored.Agents[0].Genome);
         Assert.Equal(JsonSerializer.Serialize(original.Agents[0].Brain.ToSnapshot()), JsonSerializer.Serialize(restored.Agents[0].Brain.ToSnapshot()));
         restored.Step(.1f);
-        Assert.Throws<NotSupportedException>(() => Simulation.LoadJson(json.Replace("\"Version\":1", "\"Version\":999")));
+        var unsupported = JsonSerializer.Deserialize<WorldSave>(json)!;
+        unsupported.Version = 999;
+        Assert.Throws<NotSupportedException>(() => Simulation.LoadJson(JsonSerializer.Serialize(unsupported)));
     }
 
     [Fact]

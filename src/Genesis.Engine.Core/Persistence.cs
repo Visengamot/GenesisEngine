@@ -6,14 +6,16 @@ public sealed partial class Simulation
 {
     private static readonly JsonSerializerOptions SaveOptions = new() { WriteIndented = false, MaxDepth = 64 };
 
-    /// <summary>Versioned world snapshot including brains. Random-generator state is not saved: resumed futures need not be identical.</summary>
+    /// <summary>Versioned world snapshot including brains, random-generator state and journal.</summary>
     public string SaveJson()
     {
         ValidateAgents();
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 1,
+            Version = 2,
+            RandomState = random.State,
+            Events = events.ToArray(),
             Width = Terrain.Width,
             Height = Terrain.Height,
             Seed = Seed,
@@ -64,7 +66,9 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version != 1) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version is not (1 or 2)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version == 2 && (d.RandomState is null || d.Events is null || d.Events.Length > 64 || d.Events.Any(e => e is null || e.Length > 2048)))
+            throw new ArgumentException("Invalid random state or journal.");
         if (d.Width <= 0 || d.Height <= 0 || (long)d.Width * d.Height > 1_000_000) throw new ArgumentException("Invalid snapshot dimensions.");
         int count = d.Width * d.Height;
         if (d.Terrain?.Length != count || d.Food?.Length != count || d.Environment?.Length != count || d.Agents is null || d.Agents.Length > MaximumPopulation ||
@@ -108,6 +112,11 @@ public sealed partial class Simulation
         { if (s is null || !Enum.IsDefined(s.Kind) || s.TribeId < 0) throw new ArgumentException("Invalid structure."); Position(s.Position); sim.structures.Add(s); }
         foreach (var r in d.Relations)
         { if (r is null || !Enum.IsDefined(r.Relation) || !tribeIds.Contains(r.FirstTribeId) || !tribeIds.Contains(r.SecondTribeId) || r.FirstTribeId == r.SecondTribeId) throw new ArgumentException("Invalid relation."); sim.relations.Add(r); }
+        if (d.Version == 2)
+        {
+            sim.random.State = d.RandomState!.Value;
+            sim.events.AddRange(d.Events!);
+        }
         return sim;
         void Position(Vec2 p) { Guard.Position(p, nameof(json)); if (p != sim.Clamp(p)) throw new ArgumentException("Position outside world."); }
     }
@@ -119,6 +128,8 @@ public sealed partial class Simulation
 public sealed class WorldSave
 {
     public int Version { get; set; }
+    public ulong? RandomState { get; set; }
+    public string[]? Events { get; set; }
     public int Width { get; set; }
     public int Height { get; set; }
     public int Seed { get; set; }

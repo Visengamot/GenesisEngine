@@ -238,7 +238,7 @@ public sealed partial class Simulation
     private readonly AgentStore agentStore = new();
     public SimulationDiagnostics Diagnostics => new(Tick, Agents.Count, agentStore.BucketCount, agentStore.CandidateChecks);
     public long Tick { get; private set; }
-    internal readonly Random random;
+    internal readonly WorldRandom random;
     internal long nextId;
     public int Seed { get; }
 
