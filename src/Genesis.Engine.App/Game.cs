@@ -31,7 +31,11 @@ internal static class Game
 
     public static int Run(string[] args)
     {
-        benchmarkMode = args.Contains("--benchmark-render");
+        bool naturalMode = args.Contains("--benchmark-natural");
+        benchmarkMode = args.Contains("--benchmark-render") || naturalMode;
+        // Natural prewarm is headless; no window or renderer resources are needed yet.
+        var natural = naturalMode ? new NaturalPopulationBenchmark() : null;
+        var naturalSimulation = natural?.CreateSimulation();
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
         Raylib.InitWindow(1480, 940, "Genesis Engine — Живой мир");
         Raylib.SetWindowMinSize(1100, 900);
@@ -41,8 +45,8 @@ internal static class Game
         var codepoints = Enumerable.Range(32, 95).Concat(Enumerable.Range(0x400, 256)).Concat(new[] { 0x2014, 0x2013, 0x00D7, 0x2116 }).ToArray();
         font = Raylib.LoadFontEx(fontPath, 32, codepoints, codepoints.Length);
         Raylib.SetTextureFilter(font.Texture, TextureFilter.Bilinear);
-        var benchmark = benchmarkMode ? new RenderBenchmark() : null;
-        var simulation = benchmark?.CreateSimulation() ?? new Simulation();
+        var benchmark = !naturalMode && benchmarkMode ? new RenderBenchmark() : null;
+        var simulation = naturalSimulation ?? benchmark?.CreateSimulation() ?? new Simulation();
         var tool = GodTool.Inspect;
         var radius = 4f;
         var paused = false;
@@ -61,6 +65,7 @@ internal static class Game
             while (!Raylib.WindowShouldClose())
             {
                 benchmark?.BeginFrame(simulation);
+                natural?.BeginFrame(simulation);
                 int width = Raylib.GetScreenWidth(), height = Raylib.GetScreenHeight();
                 var mapArea = new Rectangle(Sidebar, Top, width - Sidebar, height - Top - Bottom);
                 var mouse = Raylib.GetMousePosition();
@@ -114,6 +119,7 @@ internal static class Game
                     }
                 }
                 benchmark?.BeginStep();
+                natural?.BeginStep();
                 if (benchmarkMode) simulation.Step(1f / 30);
                 else if (!paused)
                 {
@@ -121,7 +127,9 @@ internal static class Game
                     while (accumulator >= 1f / 30) { simulation.Step(1f / 30); accumulator -= 1f / 30; }
                 }
                 benchmark?.EndStep();
+                natural?.EndStep();
                 benchmark?.BeginDraw();
+                natural?.BeginDraw();
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(new Color(16, 23, 28, 255));
                 Raylib.BeginScissorMode((int)mapArea.X, (int)mapArea.Y, (int)mapArea.Width, (int)mapArea.Height);
@@ -181,7 +189,9 @@ internal static class Game
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));
                 Text(notice.Length > 110 ? notice[..110] + "..." : notice, Sidebar + 16, height - 29, 14, Muted);
                 benchmark?.BeginPresent();
+                natural?.BeginPresent();
                 Raylib.EndDrawing();
+                if (natural != null && natural.EndFrame(simulation)) break;
                 if (benchmark != null && benchmark.EndFrame(simulation))
                 {
                     if (benchmark.IsComplete) break;
@@ -194,7 +204,8 @@ internal static class Game
                 }
             }
             benchmark?.Save();
-            return benchmark != null && !benchmark.IsComplete ? 2 : 0;
+            natural?.Save(simulation);
+            return (benchmark != null && !benchmark.IsComplete) || (natural != null && !natural.IsComplete) ? 2 : 0;
         }
         finally { WorldRenderer.Unload(); Raylib.UnloadFont(font); Raylib.CloseWindow(); }
     }
