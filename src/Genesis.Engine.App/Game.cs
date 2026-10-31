@@ -120,7 +120,7 @@ internal static class Game
                 Text("GENESIS", 22, 12, 25, new Color(147, 223, 177, 255));
                 Text("ЛАБОРАТОРИЯ ЖИВОГО МИРА", 23, 43, 12, Muted);
                 Text($"Жители  {simulation.Agents.Count}     Племена  {simulation.Tribes.Count}     Поколение  {(simulation.Agents.Count == 0 ? 0 : simulation.Agents.Max(a => a.Generation))}", 322, 14, 19, Ink);
-                Text($"Время  {simulation.Tick / 30f:0} с    •    {speed}×    •    {(paused ? "Пауза" : "Жизнь продолжается")}", 322, 42, 16, Muted);
+                Text($"Время  {simulation.Tick / 30f:0} с    •    {speed}×    •    Видов {simulation.SpeciesCount}    •    {(paused ? "Пауза" : "Жизнь продолжается")}", 322, 42, 16, Muted);
                 if (Button(new(width - 244, 20, 102, 34), paused ? "Продолжить" : "Пауза", paused)) paused = !paused;
                 if (Button(new(width - 130, 20, 108, 34), $"Скорость {speed}×", false)) speed = speed == 4 ? 1 : speed * 2;
                 Raylib.DrawRectangle(0, Top, Sidebar, height - Top, new Color(25, 35, 40, 255));
@@ -140,7 +140,7 @@ internal static class Game
                 var selected = simulation.Agents.FirstOrDefault(a => a.Id == selectedId);
                 if (selected != null)
                 {
-                    Text($"Житель №{selected.Id}", 20, 595, 19, Ink);
+                    Text($"Житель №{selected.Id} · Вид {selected.SpeciesId}", 20, 595, 17, Ink);
                     Text($"Возраст {selected.Age:0} с   Поколение {selected.Generation}", 20, 625, 14, Muted);
                     Text($"Энергия {selected.Energy:0.00} / 3", 20, 648, 15, Ink);
                     Text($"Скорость {selected.Genome.Speed:0.00}   Зрение {selected.Genome.Vision:0.0}", 20, 674, 14, Muted);

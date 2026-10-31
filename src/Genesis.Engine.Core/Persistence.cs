@@ -19,6 +19,7 @@ public sealed partial class Simulation
             Seed = Seed,
             Tick = Tick,
             NextId = nextId,
+            AllowInterspeciesMating = AllowInterspeciesMating,
             NextTribeId = nextTribeId,
             CivilizationClock = civilizationClock,
             Terrain = new float[Terrain.Width * Terrain.Height],
@@ -31,6 +32,7 @@ public sealed partial class Simulation
                 Energy = a.Energy,
                 Age = a.Age,
                 Generation = a.Generation,
+                OffspringCount = a.OffspringCount,
                 Heading = a.Heading,
                 Traits = [a.Genome.Speed, a.Genome.Size, a.Genome.Vision, a.Genome.Metabolism, a.Genome.Aggression, a.Genome.Sociality, a.Genome.Curiosity],
                 Brain = a.Brain.ToSnapshot()
@@ -81,13 +83,15 @@ public sealed partial class Simulation
             }
         foreach (var a in d.Agents)
         {
-            if (a is null || a.Traits?.Length != 7 || a.Brain is null || a.Generation < 0) throw new ArgumentException("Invalid agent snapshot.");
+            if (a is null || a.Traits?.Length != 7 || a.Brain is null || a.Generation < 0 || a.OffspringCount < 0) throw new ArgumentException("Invalid agent snapshot.");
             Range(a.Energy, 0, 3); Range(a.Age, 0, MaximumAge + 1); Guard.Position(a.Heading, nameof(a.Heading));
             float[] g = a.Traits;
             var genome = new Genome(g[0], g[1], g[2], g[3], g[4], g[5], g[6]);
-            sim.Agents.Add(new(a.Id, a.Position, genome, new NeuralNetwork(a.Brain)) { Energy = a.Energy, Age = a.Age, Generation = a.Generation, Heading = a.Heading });
+            sim.Agents.Add(new(a.Id, a.Position, genome, new NeuralNetwork(a.Brain)) { Energy = a.Energy, Age = a.Age, Generation = a.Generation, OffspringCount = a.OffspringCount, Heading = a.Heading });
         }
         sim.ValidateAgents();
+        sim.AllowInterspeciesMating = d.AllowInterspeciesMating;
+        sim.RefreshSpecies();
         var ids = sim.Agents.Select(a => a.Id).ToHashSet(); var tribeIds = new HashSet<int>(); var memberIds = new HashSet<int>();
         foreach (var t in d.Tribes)
         {
@@ -120,6 +124,7 @@ public sealed class WorldSave
     public int Seed { get; set; }
     public long Tick { get; set; }
     public long NextId { get; set; }
+    public bool AllowInterspeciesMating { get; set; }
     public int NextTribeId { get; set; }
     public float CivilizationClock { get; set; }
     public float[] Terrain { get; set; } = [];
@@ -140,6 +145,7 @@ public sealed class AgentSave
     public float Age { get; set; }
     public Vec2 Heading { get; set; }
     public int Generation { get; set; }
+    public int OffspringCount { get; set; }
     public NetworkSnapshot? Brain { get; set; }
 }
 public sealed class PredatorSave { public Vec2 Position { get; set; } public float Energy { get; set; } }

@@ -204,6 +204,8 @@ public sealed class Agent
     public float Age { get; internal set; }
     public int Generation { get; internal set; }
     public NeuralNetwork Brain { get; }
+    public int SpeciesId { get; internal set; } = -1;
+    public int OffspringCount { get; internal set; }
     public Vec2 Heading { get; set; }
 
     public Agent(int id, Vec2 p, Genome g) : this(id, p, g, NeuralNetwork.CreateForager(id)) { }
@@ -259,6 +261,7 @@ public sealed partial class Simulation
                 Genome.Random(random), NeuralNetwork.CreateForager(random.Next()))
             { Heading = RandomHeading() });
         InitializeEnvironment();
+        RefreshSpecies();
     }
 
     public void Step(float dt)
@@ -348,14 +351,22 @@ public sealed partial class Simulation
 
     private void Reproduce()
     {
-        var parents = Agents.Where(a => a.Age >= 5 && a.Energy >= 1.5f).OrderBy(a => a.Id).ToArray();
+        RefreshSpecies();
+        var sizes = Species.ToDictionary(s => s.Id, s => s.MemberCount);
+        // Online fitness sharing prioritizes rare compatible groups when local mates/capacity are scarce.
+        // This is steady-state ecological selection, not generations, species quotas or full NEAT.
+        var parents = Agents.Where(a => a.Age >= 5 && a.Energy >= 1.5f)
+            .OrderByDescending(a => ReproductiveFitness(a) / sizes[a.SpeciesId])
+            .ThenBy(a => a.Id).ToArray();
         var used = new HashSet<int>();
         foreach (var parent in parents)
         {
             if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) break;
             if (used.Contains(parent.Id)) continue;
-            var mate = parents.FirstOrDefault(a => a.Id != parent.Id && !used.Contains(a.Id) &&
-                Math.Abs(a.Position.X - parent.Position.X) <= 3 && Math.Abs(a.Position.Y - parent.Position.Y) <= 3);
+            bool Available(Agent a) => a.Id != parent.Id && !used.Contains(a.Id) &&
+                Math.Abs(a.Position.X - parent.Position.X) <= 3 && Math.Abs(a.Position.Y - parent.Position.Y) <= 3;
+            var mate = parents.FirstOrDefault(a => a.SpeciesId == parent.SpeciesId && Available(a));
+            if (mate is null && AllowInterspeciesMating) mate = parents.FirstOrDefault(Available);
             if (mate is null) continue;
             var genome = parent.Genome.Crossover(mate.Genome, random).Mutate(random);
             var brain = parent.Brain.Crossover(mate.Brain, random);
@@ -368,10 +379,13 @@ public sealed partial class Simulation
             // Combined cost exceeds newborn energy: reproduction never creates free energy.
             parent.Energy -= BirthCostPerParent;
             mate.Energy -= BirthCostPerParent;
+            if (parent.OffspringCount < int.MaxValue) parent.OffspringCount++;
+            if (mate.OffspringCount < int.MaxValue) mate.OffspringCount++;
             used.Add(parent.Id);
             used.Add(mate.Id);
             Agents.Add(child);
         }
+        RefreshSpecies();
     }
 
     partial void InitializeEnvironment();
@@ -386,6 +400,7 @@ public sealed partial class Simulation
         if (Agents.Count >= MaximumPopulation || nextId > int.MaxValue) throw new InvalidOperationException("Population or ID capacity reached.");
         var agent = new Agent((int)nextId++, position, Genome.Random(random), NeuralNetwork.CreateForager(random.Next())) { Heading = RandomHeading() };
         Agents.Add(agent);
+        RefreshSpecies();
         return agent;
     }
 

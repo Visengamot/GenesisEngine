@@ -77,7 +77,7 @@ public sealed partial class Simulation
             if (!t.HasWeapons && t.Age >= 15 && t.Wood >= .3f && t.Stone >= .5f) { t.Wood -= .3f; t.Stone -= .5f; t.HasWeapons = true; RecordEvent($"Племя {t.Id} освоило оружие."); }
             Build(t, StructureKind.Hut, .6f, .2f, true);
             Build(t, StructureKind.Farm, .5f, .1f, t.HasFarming);
-            Build(t, StructureKind.Road, .2f, .4f, t.HasFarming && t.HasWeapons);
+            BuildRoad(t);
             foreach (var s in structures.Where(s => s.TribeId == t.Id))
             {
                 int x = (int)s.Position.X, y = (int)s.Position.Y;
@@ -85,7 +85,7 @@ public sealed partial class Simulation
                 if (s.Kind == StructureKind.Hut)
                     foreach (var a in members.Where(a => DistanceSquared(a.Position, s.Position) < 4))
                     { float meal = Math.Min(Math.Max(0, t.Food - .15f), .02f * elapsed); t.Food -= meal; a.Energy = Math.Min(3, a.Energy + meal); }
-                // Roads are settlement path markers only; no free energy or pathfinding claim.
+                // Roads connect buildings by obstacle-aware routes; no free energy bonus.
             }
             if (t.HasWeapons)
                 foreach (var p in predators.Where(p => DistanceSquared(p.Position, t.Center) < 16)) p.Energy = Math.Max(0, p.Energy - .08f * elapsed);
@@ -111,16 +111,36 @@ public sealed partial class Simulation
                 }
             }
     }
+    private void BuildRoad(Tribe tribe)
+    {
+        if (!tribe.HasFarming || !tribe.HasWeapons || tribe.Stone < .04f || tribe.Wood < .02f || structures.Count >= 128) return;
+        var hut = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut);
+        var farm = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Farm);
+        if (hut is null || farm is null) return;
+        var path = GridPathfinder.Find(Terrain, hut.Position, farm.Position,
+            (x,y) => Environment.Get(x,y).Fire >= .05f);
+        // Lay one paid segment per decision, rather than materializing an entire free road.
+        foreach (var point in path.Skip(1).SkipLast(1))
+        {
+            if (structures.Any(s => s.Position == point)) continue;
+            tribe.Stone -= .04f; tribe.Wood -= .02f;
+            structures.Add(new(StructureKind.Road, point, tribe.Id));
+            return;
+        }
+    }
+
     private void Build(Tribe t, StructureKind kind, float wood, float stone, bool enabled)
     {
         if (!enabled || structures.Count >= 128 || structures.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
         Vec2? site = null;
-        for (int dy = -2; dy <= 2 && site is null; dy++)
-            for (int dx = -2; dx <= 2 && site is null; dx++)
+        int searchRadius = kind == StructureKind.Farm ? 5 : 2;
+        for (int dy = -searchRadius; dy <= searchRadius && site is null; dy++)
+            for (int dx = -searchRadius; dx <= searchRadius && site is null; dx++)
             {
                 var candidate = Clamp(new((int)t.Center.X + dx, (int)t.Center.Y + dy));
                 float height = Terrain.Get((int)candidate.X, (int)candidate.Y);
-                if (height >= 0 && height < 1.5f && Environment.Get((int)candidate.X, (int)candidate.Y).Fire < .05f && !structures.Any(s => s.Position == candidate)) site = candidate;
+                bool spaced = kind != StructureKind.Farm || !structures.Any(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut && DistanceSquared(s.Position, candidate) < 9);
+                if (spaced && height >= 0 && height < 1.5f && Environment.Get((int)candidate.X, (int)candidate.Y).Fire < .05f && !structures.Any(s => s.Position == candidate)) site = candidate;
             }
         if (site is null) return;
         t.Wood -= wood; t.Stone -= stone;

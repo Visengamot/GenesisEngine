@@ -5,7 +5,7 @@ public sealed record NodeGene(int Id, NeuralNodeKind Kind, int Index, double Dep
 public sealed record ConnectionGene(long Innovation, int From, int To, float Weight, bool Enabled = true);
 public sealed record NetworkSnapshot(int InputCount, int OutputCount, NodeGene[] Nodes, ConnectionGene[] Connections);
 
-/// <summary>NEAT-inspired feed-forward structural evolution with homologous innovations; no speciation or fitness sharing.</summary>
+/// <summary>NEAT-inspired feed-forward structural evolution with homologous innovations. Online species and reproductive sharing are implemented by Simulation.</summary>
 public sealed class NeuralNetwork
 {
     private readonly NodeGene[] nodes;
