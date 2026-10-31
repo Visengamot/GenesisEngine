@@ -235,6 +235,9 @@ public sealed partial class Simulation
     public const int MaximumPopulation = 600;
     public const float BirthCostPerParent = .65f;
     public const float MaximumAge = 180;
+    // Procedural hills stay traversable; only deliberately sculpted deep water and peaks block agents.
+    public const float DeepWaterLevel = -.6f;
+    public const float MountainLevel = 3f;
     public TerrainMap Terrain { get; }
     public FoodMap Food { get; }
     // Retained for App compatibility. External additions are validated before stepping.
@@ -320,15 +323,16 @@ public sealed partial class Simulation
             var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
             float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
             if (length > 1) motion *= 1 / length;
-            // Reflect at real walls, retaining the reflected heading. No teleportation or center attraction.
+            // Preserve the original terrain drag, but sweep the slowed motion through every intervening
+            // cell. Reflect individual velocity components at walls or blocked cells, without teleporting.
             var target = position.Value + motion * (genome.Speed * 4 * dt);
-            float mx = motion.X, my = motion.Y;
-            target = new(Reflect(target.X, Terrain.Width - 1, ref mx), Reflect(target.Y, Terrain.Height - 1, ref my));
-            agent.Heading = new(mx, my);
+            float previewX = motion.X, previewY = motion.Y;
+            target = new(Reflect(target.X, Terrain.Width - 1, ref previewX),
+                Reflect(target.Y, Terrain.Height - 1, ref previewY));
             float elevation = Terrain.Get((int)position.Value.X, (int)position.Value.Y);
             float slope = Math.Abs(Terrain.Get((int)target.X, (int)target.Y) - elevation);
-            var moved = Clamp(position.Value + new Vec2(target.X - position.Value.X,
-                target.Y - position.Value.Y) * (1 / (1 + slope)));
+            var moved = SweepMovement(position.Value, motion, genome.Speed * 4 * dt / (1 + slope), out var heading);
+            agent.Heading = heading;
             position = new(moved);
             float eaten = Food.Consume((int)moved.X, (int)moved.Y, .35f * genome.Size * dt);
             vitality = vitality with { Energy = Math.Min(3, vitality.Energy + eaten - dt *
@@ -343,7 +347,7 @@ public sealed partial class Simulation
         SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }
 
-    /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
+    /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls or impassable terrain), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
     public float[] Sense(Agent agent)
     {
         var inputs = new float[Agent.SensorCount];
@@ -367,8 +371,11 @@ public sealed partial class Simulation
             int sx = x + directions[i].X * distance;
             int sy = y + directions[i].Y * distance;
             bool outside = sx < 0 || sy < 0 || sx >= Terrain.Width || sy >= Terrain.Height;
+            bool blocked = outside;
+            for (int step = 1; step <= distance && !blocked; step++)
+                blocked = IsImpassable(x + directions[i].X * step, y + directions[i].Y * step);
             inputs[i] = Food.Get(sx, sy);
-            inputs[i + 4] = outside ? 1 : MathF.Tanh(Terrain.Get(sx, sy) - Terrain.Get(x, y));
+            inputs[i + 4] = blocked ? 1 : MathF.Tanh(Terrain.Get(sx, sy) - Terrain.Get(x, y));
         }
         inputs[8] = Math.Clamp(agent.Energy / 3, 0, 1);
         inputs[9] = Food.Get(x, y);
@@ -485,6 +492,52 @@ public sealed partial class Simulation
         float angle = random.NextSingle() * MathF.Tau;
         return new(MathF.Cos(angle) * .65f, MathF.Sin(angle) * .65f);
     }
+    private bool IsImpassable(int x, int y)
+    {
+        float height = Terrain.Get(x, y);
+        return height <= DeepWaterLevel || height >= MountainLevel;
+    }
+
+    private Vec2 SweepMovement(Vec2 start, Vec2 velocity, float distance, out Vec2 heading)
+    {
+        // At most a quarter cell per sweep: even maximum speed and dt cannot skip a thin obstacle.
+        int steps = Math.Max(1, (int)Math.Ceiling(
+            Math.Max(Math.Abs((double)velocity.X), Math.Abs((double)velocity.Y)) * distance * 4));
+        float dx = velocity.X * (distance / steps), dy = velocity.Y * (distance / steps);
+        float x = start.X, y = start.Y;
+        for (int step = 0; step < steps; step++)
+        {
+            float nx = Reflect(x + dx, Terrain.Width - 1, ref dx);
+            float ny = Reflect(y + dy, Terrain.Height - 1, ref dy);
+            if ((int)nx != (int)x && IsImpassable((int)nx, (int)y))
+            {
+                // Mirror about the shared cell edge, rather than clipping at an arbitrary distance.
+                float edge = dx > 0 ? (int)nx : (int)x;
+                nx = dx > 0 ? MathF.BitDecrement(2 * edge - nx) : 2 * edge - nx;
+                dx = -dx;
+            }
+            if ((int)ny != (int)y && IsImpassable((int)x, (int)ny))
+            {
+                float edge = dy > 0 ? (int)ny : (int)y;
+                ny = dy > 0 ? MathF.BitDecrement(2 * edge - ny) : 2 * edge - ny;
+                dy = -dy;
+            }
+            // A diagonal crossing into a blocked cell must also be stopped when both side cells are clear.
+            if (IsImpassable((int)nx, (int)ny) && !IsImpassable((int)x, (int)y))
+            {
+                nx = x;
+                ny = y;
+                dx = -dx;
+                dy = -dy;
+            }
+            x = nx;
+            y = ny;
+        }
+        // Wall and obstacle reflections change signs but retain the original heading magnitude.
+        heading = new(MathF.CopySign(Math.Abs(velocity.X), dx), MathF.CopySign(Math.Abs(velocity.Y), dy));
+        return new(x, y);
+    }
+
     private static float Reflect(float coordinate, float maximum, ref float direction)
     {
         if (maximum <= 0) { direction = 0; return 0; }
