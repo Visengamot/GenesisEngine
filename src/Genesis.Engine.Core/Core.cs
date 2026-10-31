@@ -225,6 +225,10 @@ public sealed class Agent
     }
 }
 
+/// <summary>Read-only value snapshot of the live movement components. Brain.Network is shared, not cloned.</summary>
+public readonly record struct AgentEntitySnapshot(PositionComponent Position, VitalityComponent Vitality,
+    GenomeComponent Genome, BrainComponent Brain);
+
 /// <summary>Single-threaded seeded prototype. Each positive Step is one tick; zero is a no-op.</summary>
 public sealed partial class Simulation
 {
@@ -236,6 +240,20 @@ public sealed partial class Simulation
     // Retained for App compatibility. External additions are validated before stepping.
     public List<Agent> Agents { get; } = new();
     private readonly AgentStore agentStore = new();
+    private readonly EntityRegistry entities = new();
+    private readonly Dictionary<int, EntityHandle> entityByAgentId = new();
+    /// <summary>Number of ECS entities. Reading reconciles the public Agents list first; no mutable registry is exposed.</summary>
+    public int EntityCount { get { ValidateAgents(); SynchronizeEntities(); return entities.Count; } }
+    /// <summary>Copies current component values for an agent ID after reconciliation. Brain is a shared mutable reference, not a deep copy.</summary>
+    public bool TryGetEntitySnapshot(int agentId, out AgentEntitySnapshot snapshot)
+    {
+        ValidateAgents();
+        SynchronizeEntities();
+        if (!entityByAgentId.TryGetValue(agentId, out var entity)) { snapshot = default; return false; }
+        snapshot = new(entities.Get<PositionComponent>(entity), entities.Get<VitalityComponent>(entity),
+            entities.Get<GenomeComponent>(entity), entities.Get<BrainComponent>(entity));
+        return true;
+    }
     public SimulationDiagnostics Diagnostics => new(Tick, Agents.Count, agentStore.BucketCount, agentStore.CandidateChecks);
     public long Tick { get; private set; }
     internal readonly WorldRandom random;
@@ -264,6 +282,7 @@ public sealed partial class Simulation
             { Heading = RandomHeading() });
         InitializeEnvironment();
         RefreshSpecies();
+        SynchronizeEntities();
     }
 
     public void Step(float dt)
@@ -271,43 +290,57 @@ public sealed partial class Simulation
         Guard.Delta(dt);
         if (dt == 0) return;
         ValidateAgents();
+        SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
         Tick = checked(Tick + 1);
         Food.Renew(dt, Terrain);
         StepEnvironment(dt);
+        SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
         Span<float> inputs = stackalloc float[Agent.SensorCount];
         Span<float> output = stackalloc float[2];
         Span<float> scratch = stackalloc float[Agent.SensorCount + 2 + 128];
         foreach (var agent in Agents)
         {
-            if (agent.Energy <= 0 || agent.Age >= MaximumAge) continue;
+            // Preserve public list order (food competition and replay), but perform movement against
+            // registry components by stable ID/handle. No structural ECS edits occur in this loop.
+            var entity = entityByAgentId[agent.Id];
+            ref var position = ref entities.Get<PositionComponent>(entity);
+            ref var vitality = ref entities.Get<VitalityComponent>(entity);
+            if (vitality.Energy <= 0 || agent.Age >= MaximumAge) continue;
+            var genome = entities.Get<GenomeComponent>(entity).Value;
+            var brain = entities.Get<BrainComponent>(entity).Network;
             agent.Age += dt;
             Sense(agent, inputs);
             // Public sensor slots preserve their original meaning; the controller receives centered levels.
             for (int i = 0; i < 4; i++) inputs[i] -= .5f;
             inputs[8] = inputs[8] * 2 - 1;
             inputs[9] = inputs[9] * 2 - 1;
-            agent.Brain.Evaluate(inputs, output, scratch);
+            brain.Evaluate(inputs, output, scratch);
             var steering = new Vec2(output[0], output[1]);
             float persistence = Math.Clamp(1 - dt * 1.4f, 0, 1);
             var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
             float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
             if (length > 1) motion *= 1 / length;
             // Reflect at real walls, retaining the reflected heading. No teleportation or center attraction.
-            var target = agent.Position + motion * (agent.Genome.Speed * 4 * dt);
+            var target = position.Value + motion * (genome.Speed * 4 * dt);
             float mx = motion.X, my = motion.Y;
             target = new(Reflect(target.X, Terrain.Width - 1, ref mx), Reflect(target.Y, Terrain.Height - 1, ref my));
             agent.Heading = new(mx, my);
-            float elevation = Terrain.Get((int)agent.Position.X, (int)agent.Position.Y);
+            float elevation = Terrain.Get((int)position.Value.X, (int)position.Value.Y);
             float slope = Math.Abs(Terrain.Get((int)target.X, (int)target.Y) - elevation);
-            agent.Position = Clamp(agent.Position + new Vec2(target.X - agent.Position.X,
-                target.Y - agent.Position.Y) * (1 / (1 + slope)));
-            float eaten = Food.Consume((int)agent.Position.X, (int)agent.Position.Y, .35f * agent.Genome.Size * dt);
-            agent.Energy = Math.Min(3, agent.Energy + eaten - dt *
-                (.06f * agent.Genome.Metabolism * agent.Genome.Size + .025f * agent.Genome.Speed * length * (1 + slope)));
+            var moved = Clamp(position.Value + new Vec2(target.X - position.Value.X,
+                target.Y - position.Value.Y) * (1 / (1 + slope)));
+            position = new(moved);
+            float eaten = Food.Consume((int)moved.X, (int)moved.Y, .35f * genome.Size * dt);
+            vitality = vitality with { Energy = Math.Min(3, vitality.Energy + eaten - dt *
+                (.06f * genome.Metabolism * genome.Size + .025f * genome.Speed * length * (1 + slope))) };
+            // Explicit write-back: subsequent civilization/reproduction and public observers read Agents.
+            agent.Position = position.Value;
+            agent.Energy = vitality.Energy;
         }
         Agents.RemoveAll(a => a.Energy <= 0 || a.Age >= MaximumAge);
         Reproduce();
         StepCivilization(dt);
+        SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }
 
     /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
@@ -341,6 +374,38 @@ public sealed partial class Simulation
         inputs[9] = Food.Get(x, y);
         inputs[10] = (float)Math.Sin(agent.Age + agent.Id) * agent.Genome.Curiosity;
         inputs[11] = 1;
+    }
+
+    // Public Agents is the inter-phase authority. Match IDs rather than list indexes because callers
+    // may reorder, remove, replace or append agents; stale registry handles are destroyed before reuse.
+    private void SynchronizeEntities()
+    {
+        var currentIds = new HashSet<int>(Agents.Select(a => a.Id));
+        foreach (var pair in entityByAgentId.ToArray())
+            if (!currentIds.Contains(pair.Key))
+            {
+                entities.Destroy(pair.Value);
+                entityByAgentId.Remove(pair.Key);
+            }
+        foreach (var agent in Agents)
+        {
+            if (!entityByAgentId.TryGetValue(agent.Id, out var entity))
+            {
+                entity = entities.Create();
+                entityByAgentId.Add(agent.Id, entity);
+                entities.Add(entity, new PositionComponent(agent.Position));
+                entities.Add(entity, new VitalityComponent(agent.Energy, agent.Energy));
+                entities.Add(entity, new GenomeComponent(agent.Genome));
+                entities.Add(entity, new BrainComponent(agent.Brain));
+            }
+            else
+            {
+                entities.Get<PositionComponent>(entity) = new(agent.Position);
+                entities.Get<VitalityComponent>(entity) = new(agent.Energy, agent.Energy);
+                entities.Get<GenomeComponent>(entity) = new(agent.Genome);
+                entities.Get<BrainComponent>(entity) = new(agent.Brain);
+            }
+        }
     }
 
     private void ValidateAgents()

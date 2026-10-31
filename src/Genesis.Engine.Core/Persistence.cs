@@ -10,10 +10,13 @@ public sealed partial class Simulation
     public string SaveJson()
     {
         ValidateAgents();
+        RefreshSpecies();
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 3,
+            Version = 4,
+            NextSpeciesId = nextSpeciesId,
+            Lineages = SaveLineages(),
             RandomState = random.State,
             Events = events.ToArray(),
             Width = Terrain.Width,
@@ -30,6 +33,7 @@ public sealed partial class Simulation
             Agents = Agents.Select(a => new AgentSave
             {
                 Id = a.Id,
+                SpeciesId = a.SpeciesId,
                 Position = a.Position,
                 Energy = a.Energy,
                 Age = a.Age,
@@ -69,7 +73,7 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2 or 3)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version is not (1 or 2 or 3 or 4)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
         if (d.Version >= 2 && (d.RandomState is null || d.Events is null || d.Events.Length > 64 || d.Events.Any(e => e is null || e.Length > 2048)))
             throw new ArgumentException("Invalid random state or journal.");
         if (d.Width <= 0 || d.Height <= 0 || (long)d.Width * d.Height > 1_000_000) throw new ArgumentException("Invalid snapshot dimensions.");
@@ -100,7 +104,24 @@ public sealed partial class Simulation
         }
         sim.ValidateAgents();
         sim.AllowInterspeciesMating = d.AllowInterspeciesMating;
-        sim.RefreshSpecies();
+        if (d.Version >= 4)
+        {
+            sim.RestoreLineages(d.Lineages, d.NextSpeciesId);
+            foreach (var (agent, saved) in sim.Agents.Zip(d.Agents))
+            {
+                if (saved.SpeciesId < 0 || !sim.lineages.Any(l => l.Id == saved.SpeciesId &&
+                    GeneticCompatibility.Distance(agent.Brain, l.Representative) <= SpeciesCompatibilityThreshold))
+                    throw new ArgumentException("Invalid saved species membership.");
+                agent.SpeciesId = saved.SpeciesId;
+            }
+            sim.classifiedAgents = sim.Agents.ToArray();
+            // Rebuild summary from the validated saved memberships without reassigning overlap cases.
+            var members = sim.Agents.GroupBy(a => a.SpeciesId).ToDictionary(g => g.Key, g => g.Count());
+            if (members.Count != sim.lineages.Count || sim.lineages.Any(l => !members.ContainsKey(l.Id)))
+                throw new ArgumentException("Lineage snapshot has extinct entries.");
+            sim.species = Array.AsReadOnly(sim.lineages.Select(l => new SpeciesSummary(l.Id, members[l.Id])).ToArray());
+        }
+        else sim.RefreshSpecies();
         var ids = sim.Agents.Select(a => a.Id).ToHashSet(); var tribeIds = new HashSet<int>(); var memberIds = new HashSet<int>();
         foreach (var t in d.Tribes)
         {
@@ -142,6 +163,8 @@ public sealed class WorldSave
     public int Seed { get; set; }
     public long Tick { get; set; }
     public long NextId { get; set; }
+    public long NextSpeciesId { get; set; }
+    public SpeciesLineageSave[]? Lineages { get; set; }
     public bool AllowInterspeciesMating { get; set; }
     public int NextTribeId { get; set; }
     public float CivilizationClock { get; set; }
@@ -154,9 +177,15 @@ public sealed class WorldSave
     public Structure[] Structures { get; set; } = [];
     public TribeRelation[] Relations { get; set; } = [];
 }
+public sealed class SpeciesLineageSave
+{
+    public int Id { get; set; }
+    public NetworkSnapshot? Representative { get; set; }
+}
 public sealed class AgentSave
 {
     public int Id { get; set; }
+    public int SpeciesId { get; set; }
     public Vec2 Position { get; set; }
     public float[] Traits { get; set; } = [];
     public float Energy { get; set; }
