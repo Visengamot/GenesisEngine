@@ -1,4 +1,4 @@
-﻿
+
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
@@ -8,8 +8,6 @@ EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Genesis.Engine.Core", "src\Genesis.Engine.Core\Genesis.Engine.Core.csproj", "{2546C51F-EA9A-4FB7-9824-75CF9DB843F1}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Genesis.Engine.App", "src\Genesis.Engine.App\Genesis.Engine.App.csproj", "{29A85E12-A5A7-4FFC-8FD0-98531A7D3D80}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Genesis.Engine.Core.Tests", "tests\Genesis.Engine.Core.Tests\Genesis.Engine.Core.Tests.csproj", "{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -45,18 +43,6 @@ Global
 		{29A85E12-A5A7-4FFC-8FD0-98531A7D3D80}.Release|x64.Build.0 = Release|Any CPU
 		{29A85E12-A5A7-4FFC-8FD0-98531A7D3D80}.Release|x86.ActiveCfg = Release|Any CPU
 		{29A85E12-A5A7-4FFC-8FD0-98531A7D3D80}.Release|x86.Build.0 = Release|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Debug|x64.ActiveCfg = Debug|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Debug|x64.Build.0 = Debug|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Debug|x86.ActiveCfg = Debug|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Debug|x86.Build.0 = Debug|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Release|Any CPU.Build.0 = Release|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Release|x64.ActiveCfg = Release|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Release|x64.Build.0 = Release|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Release|x86.ActiveCfg = Release|Any CPU
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -64,6 +50,5 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{2546C51F-EA9A-4FB7-9824-75CF9DB843F1} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{29A85E12-A5A7-4FFC-8FD0-98531A7D3D80} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
-		{E1FD9C0E-3A6A-482A-8EBD-06FAEF24CDF1} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
