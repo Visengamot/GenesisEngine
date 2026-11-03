@@ -1,0 +1,47 @@
+[
+  {
+    "initialPopulation": 600,
+    "finalPopulation": 600,
+    "meanStepMs": 8.353734166666666,
+    "p95StepMs": 17.1234,
+    "maxStepMs": 25.3317,
+    "allocatedBytesPerStep": 162471,
+    "samples": 120,
+    "seed": 42,
+    "map": "160x90",
+    "fixedStepSeconds": 0.033333335,
+    "runtime": ".NET 8.0.24",
+    "cpuCount": 8,
+    "note": "Headless synthetic stress; not rendered FPS, no ECS claim. Birth cap remains 600."
+  },
+  {
+    "initialPopulation": 2000,
+    "finalPopulation": 2000,
+    "meanStepMs": 4.572004166666667,
+    "p95StepMs": 7.4762,
+    "maxStepMs": 14.2317,
+    "allocatedBytesPerStep": 653511,
+    "samples": 120,
+    "seed": 42,
+    "map": "160x90",
+    "fixedStepSeconds": 0.033333335,
+    "runtime": ".NET 8.0.24",
+    "cpuCount": 8,
+    "note": "Headless synthetic stress; not rendered FPS, no ECS claim. Birth cap remains 600."
+  },
+  {
+    "initialPopulation": 10000,
+    "finalPopulation": 10000,
+    "meanStepMs": 27.445400833333334,
+    "p95StepMs": 31.7233,
+    "maxStepMs": 185.0575,
+    "allocatedBytesPerStep": 2940066,
+    "samples": 120,
+    "seed": 42,
+    "map": "160x90",
+    "fixedStepSeconds": 0.033333335,
+    "runtime": ".NET 8.0.24",
+    "cpuCount": 8,
+    "note": "Headless synthetic stress; not rendered FPS, no ECS claim. Birth cap remains 600."
+  }
+]

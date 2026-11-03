@@ -1,0 +1,121 @@
+{
+  "mode": "--benchmark-natural",
+  "completed": true,
+  "startedUtc": "2026-10-31T19:34:08.6513079+00:00",
+  "finishedUtc": "2026-10-31T19:34:18.3818829+00:00",
+  "runtime": ".NET 8.0.24",
+  "os": "Microsoft Windows 10.0.19045",
+  "architecture": "X64",
+  "logicalProcessors": 8,
+  "stopwatchFrequency": 10000000,
+  "targetFps": 0,
+  "requestedVsync": false,
+  "methodology": "Native Raylib window, same complete world renderer and HUD as gameplay; full frames include EndDrawing. Seed 42 initial 80 inhabitants; 1800 headless Simulation.Step(1/30) ticks, 30 native warmup frames, then 120 measured native frames, one complete simulation step per frame. No injections, external spawning, disabled systems, screenshot, or FPS limiter. Managed allocations are measured on the current thread. Percentile uses nearest rank. Wall-clock times may include driver/compositor presentation waits and are not isolated GPU time.",
+  "normalBirthCap": 1000,
+  "simulationDt": 0.033333335,
+  "prewarm": {
+    "ticks": 1800,
+    "initialPopulation": 80,
+    "endPopulation": 1000,
+    "minPopulation": 80,
+    "maxPopulation": 1000,
+    "births": 952
+  },
+  "warmupFrames": 30,
+  "measuredFramesRequested": 120,
+  "measuredFrames": 120,
+  "measuredPopulation": {
+    "start": 1000,
+    "end": 1000,
+    "min": 1000,
+    "max": 1000
+  },
+  "generations": {
+    "start": 6,
+    "end": 6
+  },
+  "births": {
+    "prewarm": 952,
+    "duringNativeWarmup": 2,
+    "duringMeasurement": 7,
+    "total": 961
+  },
+  "simulationTicks": {
+    "start": 1830,
+    "end": 1950,
+    "measured": 120
+  },
+  "stepMs": {
+    "mean": 3.0335708333333335,
+    "min": 2.0533,
+    "p95": 4.7038,
+    "max": 6.1779
+  },
+  "drawIncludingEndDrawingMs": {
+    "mean": 11.451054166666673,
+    "min": 6.2992,
+    "p95": 16.1704,
+    "max": 24.8757
+  },
+  "endDrawingMs": {
+    "mean": 0.1963675,
+    "min": 0.1369,
+    "p95": 0.2796,
+    "max": 0.3392
+  },
+  "frameMs": {
+    "mean": 14.487616666666664,
+    "min": 8.4176,
+    "p95": 19.4015,
+    "max": 27.7968
+  },
+  "terrainRefreshFrames": {
+    "count": 120,
+    "frameMs": {
+      "mean": 14.487616666666664,
+      "min": 8.4176,
+      "p95": 19.4015,
+      "max": 27.7968
+    },
+    "drawMs": {
+      "mean": 11.451054166666673,
+      "min": 6.2992,
+      "p95": 16.1704,
+      "max": 24.8757
+    }
+  },
+  "reusedTerrainFrames": {
+    "count": 0,
+    "frameMs": null,
+    "drawMs": null
+  },
+  "meanThroughputFps": 69.0244657218751,
+  "managedAllocationBytes": {
+    "scope": "Current render/simulation thread, each measured frame; excludes sample storage and prewarm",
+    "total": 4941136,
+    "perFrame": {
+      "mean": 41176.13333333333,
+      "min": 9080,
+      "p95": 377392,
+      "max": 381216
+    }
+  },
+  "gcCollections": [
+    2,
+    1,
+    1
+  ],
+  "screen": {
+    "width": 1480,
+    "height": 940,
+    "renderWidth": 1480,
+    "renderHeight": 940
+  },
+  "world": {
+    "width": 160,
+    "height": 90,
+    "seed": 42,
+    "tribes": 28,
+    "species": 1
+  }
+}
