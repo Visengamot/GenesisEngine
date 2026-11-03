@@ -47,22 +47,23 @@ internal static class Game
         Raylib.SetTextureFilter(font.Texture, TextureFilter.Bilinear);
         var benchmark = !naturalMode && benchmarkMode ? new RenderBenchmark() : null;
         var simulation = naturalSimulation ?? benchmark?.CreateSimulation() ?? new Simulation();
+        var smokeAgentPanel = !benchmarkMode && args.Contains("--smoke-agent-panel");
         var tool = GodTool.Inspect;
         var radius = 4f;
-        var paused = false;
+        var paused = smokeAgentPanel;
         var speed = 1;
         var accumulator = 0f;
         var zoom = 1f;
         var pan = Vector2.Zero;
         var mapDrag = new MapInteractionController();
-        var selectedId = -1;
+        var selectedId = smokeAgentPanel ? simulation.Agents[0].Id : -1;
         var showTerritories = false;
         var showCivilizationPanel = false;
         var selectedTribeId = -1;
         var editingLimit = false;
         var limitInput = "";
         var notice = "Мир развивается сам. Вы меняете условия жизни.";
-        var smoke = !benchmarkMode && args.Contains("--smoke");
+        var smoke = !benchmarkMode && (args.Contains("--smoke") || smokeAgentPanel);
         var frames = 0;
         var savePath = Path.Combine(AppContext.BaseDirectory, "Saves", "world.json");
         try
@@ -75,7 +76,8 @@ internal static class Game
                 var mapArea = new Rectangle(Sidebar, Top, width - Sidebar, height - Top - Bottom);
                 var mouse = Raylib.GetMousePosition();
                 var elapsed = Math.Clamp(Raylib.GetFrameTime(), 0, .1f);
-                bool onMap = Raylib.CheckCollisionPointRec(mouse, mapArea);
+                bool onMap = Raylib.CheckCollisionPointRec(mouse, mapArea)
+                    && (selectedId < 0 || !Raylib.CheckCollisionPointRec(mouse, AgentDetailsPanel.Bounds(width, height, Sidebar, Top)));
                 float baseCell = Math.Min(mapArea.Width / simulation.Terrain.Width, mapArea.Height / simulation.Terrain.Height);
                 float cell = baseCell * zoom;
                 Vector2 MapOrigin() => new(mapArea.X + (mapArea.Width - simulation.Terrain.Width * cell) / 2 + pan.X,
@@ -170,9 +172,10 @@ internal static class Game
                 Text("ЛАБОРАТОРИЯ ЖИВОГО МИРА", 23, 43, 12, Muted);
                 Text($"Жители  {simulation.Agents.Count}/{simulation.PopulationLimit}     Племена  {simulation.Tribes.Count}     Поколение  {(simulation.Agents.Count == 0 ? 0 : simulation.Agents.Max(a => a.Generation))}", 322, 14, 19, Ink);
                 Text($"Время  {simulation.Tick / 30f:0} с    •    {speed}×    •    Видов {simulation.SpeciesCount}    •    {(paused ? "Пауза" : "Жизнь продолжается")}", 322, 42, 16, Muted);
-                if (Button(new(width - 244, 20, 102, 34), paused ? "Продолжить" : "Пауза", paused)) paused = !paused;
+                if (Button(new Rectangle(width - 244, 20, 102, 34), paused ? "Продолжить" : "Пауза", paused)) paused = !paused;
                 if (Button(new(width - 130, 20, 108, 34), $"Скорость {speed}×", false)) speed = speed == 4 ? 1 : speed * 2;
                 Raylib.DrawRectangle(0, Top, Sidebar, height - Top, new Color(25, 35, 40, 255));
+                Raylib.BeginScissorMode(0, Top, Sidebar, height - Top - Bottom);
                 Text("ИНСТРУМЕНТЫ ТВОРЦА", 20, 94, 16, Ink);
                 for (int i = 0; i < Tools.Length; i++)
                 {
@@ -193,6 +196,7 @@ internal static class Game
                 if (Button(civilizationButton, showCivilizationPanel ? "Цивилизации: скрыть" : "Цивилизации: открыть", showCivilizationPanel))
                     showCivilizationPanel = !showCivilizationPanel;
                 var selected = simulation.Agents.FirstOrDefault(a => a.Id == selectedId);
+                if (selected is null) selectedId = -1;
                 if (showCivilizationPanel)
                 {
                     var tribes = simulation.Tribes.OrderBy(t => t.Id).ToArray();
@@ -216,15 +220,7 @@ internal static class Game
                     }
                 }
                 else if (selected != null)
-                {
-                    Text($"Житель №{selected.Id} · Вид {selected.SpeciesId}", 20, 608, 16, Ink);
-                    Text($"Возраст {selected.Age:0} с   Поколение {selected.Generation}", 20, 633, 13, Muted);
-                    Text($"Энергия {selected.Energy:0.00} / 3", 20, 653, 14, Ink);
-                    Text($"Скорость {selected.Genome.Speed:0.00}   Зрение {selected.Genome.Vision:0.0}", 20, 674, 13, Muted);
-                    Text($"Общительность {selected.Genome.Sociality:0.00}", 20, 695, 13, Muted);
-                    Text($"Агрессия {selected.Genome.Aggression:0.00}", 20, 716, 13, Muted);
-                    Text($"Мозг: {selected.Brain.HiddenNodeCount} узлов / {selected.Brain.ConnectionCount} связей", 20, 737, 12, Muted);
-                }
+                    Text($"Выбран житель №{selected.Id}. Подробности — справа.", 20, 651, 12, Muted);
                 else
                 {
                     Text("ЛЕТОПИСЬ МИРА", 20, 610, 16, Ink);
@@ -243,6 +239,9 @@ internal static class Game
                 Text($"Прочие причины: {mortality.Other}", 20, mortalityY + 35, 11, Muted);
                 Text("F5 — сохранить   F9 — загрузить", 20, height - 90, 13, Ink);
                 Text("R — новый мир   Home — вид целиком", 20, height - 70, 12, Muted);
+                Raylib.EndScissorMode();
+                if (selected != null && AgentDetailsPanel.Draw(selected, width, height, Sidebar, Top, font))
+                    selectedId = -1;
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));
                 Text(notice.Length > 110 ? notice[..110] + "..." : notice, Sidebar + 16, height - 29, 14, Muted);
                 benchmark?.BeginPresent();
@@ -256,7 +255,7 @@ internal static class Game
                 }
                 if (smoke && ++frames >= 120)
                 {
-                    Raylib.TakeScreenshot("genesis-preview.png");
+                    Raylib.TakeScreenshot(smokeAgentPanel ? "genesis-agent-panel.png" : "genesis-preview.png");
                     break;
                 }
             }
