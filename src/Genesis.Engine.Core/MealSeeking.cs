@@ -48,7 +48,9 @@ public sealed partial class Simulation
     private bool TryMealMotion(Agent citizen, float dt, out Vec2 motion)
     {
         motion = default;
-        var journey = mealJourneys.FirstOrDefault(j => j.WorkerId == citizen.Id);
+        MealJourney? journey = null;
+        foreach (var candidate in mealJourneys)
+            if (candidate.WorkerId == citizen.Id) { journey = candidate; break; }
         if (journey is null || citizen.Energy >= 1.5f || Tick >= journey.DeadlineTick) return false;
         while (journey.Waypoint < journey.Route.Length && DistanceSquared(citizen.Position, journey.Route[journey.Waypoint]) < .04f)
             journey.Waypoint++;

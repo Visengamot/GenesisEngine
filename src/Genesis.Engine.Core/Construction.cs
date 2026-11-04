@@ -28,7 +28,9 @@ public sealed partial class Simulation
     private bool TryConstructionMotion(Agent worker, float dt, out Vec2 motion)
     {
         motion = default;
-        var site = constructionSites.FirstOrDefault(s => s.WorkerId == worker.Id);
+        ConstructionSite? site = null;
+        foreach (var candidate in constructionSites)
+            if (candidate.WorkerId == worker.Id) { site = candidate; break; }
         if (site is null || worker.Energy < .35f) return false;
         if (site.BlockReason.Length > 0) return true;
         while (site.Waypoint < site.Route.Length && DistanceSquared(worker.Position, site.Route[site.Waypoint]) < .04f) site.Waypoint++;

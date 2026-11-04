@@ -153,7 +153,9 @@ public sealed partial class Simulation
     private bool TryHaulMotion(Agent agent, float dt, out Vec2 motion)
     {
         motion = default;
-        var job = haulJobs.FirstOrDefault(j => j.WorkerId == agent.Id);
+        HaulJob? job = null;
+        foreach (var candidate in haulJobs)
+            if (candidate.WorkerId == agent.Id) { job = candidate; break; }
         if (job is null || agent.Energy < .35f || Tick >= job.DeadlineTick) return false;
         if (job.Stage is HaulStage.Blocked or HaulStage.WaitingForCapacity) return true;
         while (job.Waypoint < job.Route.Length && DistanceSquared(agent.Position, job.Route[job.Waypoint]) < .04f) job.Waypoint++;
