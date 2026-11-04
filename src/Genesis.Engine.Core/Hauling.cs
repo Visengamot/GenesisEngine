@@ -14,6 +14,7 @@ public sealed class HaulJob
     public HaulStage Stage { get; set; }
     public float Cargo { get; set; }
     public long RetryTick { get; set; }
+    public long DeadlineTick { get; set; }
     public string BlockReason { get; set; } = "";
 }
 
@@ -35,7 +36,7 @@ public sealed partial class Simulation
         foreach (var j in save.HaulJobs)
         {
             if (j is null || !workers.Add(j.WorkerId) || !Enum.IsDefined(j.Resource) || !Enum.IsDefined(j.Stage) ||
-                !float.IsFinite(j.Cargo) || j.Cargo < 0 || j.Cargo > .25f || j.RetryTick < 0 || j.Route is null ||
+                !float.IsFinite(j.Cargo) || j.Cargo < 0 || j.Cargo > .25f || j.RetryTick < 0 || (save.Version >= 11 && j.DeadlineTick <= 0) || j.Route is null ||
                 j.Route.Length > 513 || j.Waypoint < 0 || j.Waypoint > j.Route.Length || j.BlockReason is null || j.BlockReason.Length > 64 ||
                 !Agents.Any(a => a.Id == j.WorkerId) || !tribes.Any(t => t.Id == j.TribeId && t.MemberIds.Contains(j.WorkerId)) ||
                 !structures.Any(s => s.TribeId == j.TribeId && s.Kind == StructureKind.Hut && s.Position == j.Home))
@@ -52,6 +53,7 @@ public sealed partial class Simulation
                     throw new ArgumentException("Nonadjacent hauling route.");
             if (j.Route.Length > 0 && j.Route[^1] != (j.Cargo > 0 ? j.Home : j.Source))
                 throw new ArgumentException("Hauling route has wrong destination.");
+            if (save.Version < 11) j.DeadlineTick = Tick + 1800;
             haulJobs.Add(j);
         }
         LostHaulCargo = save.LostHaulCargo; DeliveredHaulCargo = save.DeliveredHaulCargo;
@@ -105,7 +107,8 @@ public sealed partial class Simulation
             var path = GridPathfinder.Search(Terrain, worker.Position, source, (x,y) => !HaulPassable(x,y), 512);
             if (path.Status != PathSearchStatus.Found) continue;
             haulJobs.Add(new() { WorkerId = worker.Id, TribeId = tribe.Id, Resource = resource,
-                Source = source, Home = home.Position, Route = path.Path.ToArray(), Stage = HaulStage.Outbound });
+                Source = source, Home = home.Position, Route = path.Path.ToArray(), Stage = HaulStage.Outbound,
+                DeadlineTick = Tick + 1800 });
             return;
         }
     }
@@ -114,7 +117,7 @@ public sealed partial class Simulation
     {
         motion = default;
         var job = haulJobs.FirstOrDefault(j => j.WorkerId == agent.Id);
-        if (job is null) return false;
+        if (job is null || agent.Energy < .35f || Tick >= job.DeadlineTick) return false;
         if (job.Stage is HaulStage.Blocked or HaulStage.WaitingForCapacity) return true;
         while (job.Waypoint < job.Route.Length && DistanceSquared(agent.Position, job.Route[job.Waypoint]) < .04f) job.Waypoint++;
         if (job.Waypoint >= job.Route.Length) return true;
@@ -139,6 +142,13 @@ public sealed partial class Simulation
                 !structures.Any(s => s.Kind == StructureKind.Hut && s.TribeId == job.TribeId && s.Position == job.Home))
             { LostHaulCargo += job.Cargo; haulJobs.RemoveAt(i); continue; }
             if (cleanupOnly) continue;
+            if (worker.Energy < .35f || Tick >= job.DeadlineTick)
+            {
+                LostHaulCargo += job.Cargo;
+                RecordEvent($"Сборщик {worker.Id}: работа отменена ({(worker.Energy < .35f ? "истощение" : "срок ожидания")}), потерян груз {job.Cargo:0.00}.");
+                haulJobs.RemoveAt(i);
+                continue;
+            }
             if (job.Stage == HaulStage.Blocked)
             {
                 if (Tick < job.RetryTick) continue;
