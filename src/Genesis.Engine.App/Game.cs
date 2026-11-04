@@ -66,6 +66,11 @@ internal static class Game
         var smoke = !benchmarkMode && (args.Contains("--smoke") || smokeAgentPanel);
         var frames = 0;
         var savePath = Path.Combine(AppContext.BaseDirectory, "Saves", "world.json");
+        void QueueUiCommand(WorldCommand command)
+        {
+            try { simulation.QueueCommand(command); }
+            catch (InvalidOperationException) { notice = "Очередь команд заполнена. Продолжите симуляцию."; }
+        }
         try
         {
             while (!Raylib.WindowShouldClose())
@@ -101,7 +106,7 @@ internal static class Game
                         if (Raylib.IsKeyPressed(KeyboardKey.Enter))
                         {
                             if (int.TryParse(limitInput, out int requested) && requested >= Simulation.MinimumPopulationLimit && requested <= Simulation.AbsoluteMaximumPopulation)
-                            { simulation.SetPopulationLimit(requested); notice = $"Лимит жителей: {requested}"; editingLimit = false; }
+                            { QueueUiCommand(new(simulation.Tick + 1, 0, "ui", WorldCommandKind.PopulationLimit, Limit: requested)); notice = $"Лимит {requested} применится на следующем тике"; editingLimit = false; }
                             else notice = $"Допустимый лимит: {Simulation.MinimumPopulationLimit}–{Simulation.AbsoluteMaximumPopulation}";
                         }
                     }
@@ -139,8 +144,8 @@ internal static class Game
                     }
                     else if (gesture.Click || (gesture.Paint && brush))
                     {
-                        simulation.ApplyTool(tool, point, radius,
-                            tool is GodTool.People or GodTool.Predator ? 1 : gesture.Paint ? elapsed * 2 : .15f);
+                        QueueUiCommand(new(simulation.Tick + 1, 0, "ui", WorldCommandKind.Tool, tool, point, radius,
+                            tool is GodTool.People or GodTool.Predator ? 1 : gesture.Paint ? elapsed * 2 : .15f));
                         WorldRenderer.InvalidateTerrain();
                     }
                 }
@@ -150,7 +155,10 @@ internal static class Game
                 else if (!paused)
                 {
                     accumulator += elapsed * speed;
-                    while (accumulator >= 1f / 30) { simulation.Step(1f / 30); accumulator -= 1f / 30; }
+                    // Keep debt rather than skipping world decisions. Overload slows simulation explicitly.
+                    int substeps = 0;
+                    while (accumulator >= 1f / 30 && substeps < 8)
+                    { simulation.Step(1f / 30); accumulator -= 1f / 30; substeps++; }
                 }
                 benchmark?.EndStep();
                 natural?.EndStep();
@@ -243,7 +251,10 @@ internal static class Game
                 if (selected != null && AgentDetailsPanel.Draw(selected, width, height, Sidebar, Top, font))
                     selectedId = -1;
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));
-                Text(notice.Length > 110 ? notice[..110] + "..." : notice, Sidebar + 16, height - 29, 14, Muted);
+                string status = accumulator >= 1f / 30
+                    ? $"Отставание симуляции: {accumulator:0.00} с · команд: {simulation.PendingCommands.Count}"
+                    : $"{notice} · очередь: {simulation.PendingCommands.Count}";
+                Text(status.Length > 110 ? status[..110] + "..." : status, Sidebar + 16, height - 29, 14, Muted);
                 benchmark?.BeginPresent();
                 natural?.BeginPresent();
                 Raylib.EndDrawing();

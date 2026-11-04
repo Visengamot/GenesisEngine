@@ -14,7 +14,10 @@ public sealed partial class Simulation
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 6,
+            Version = 7,
+            PendingCommands = pendingCommands.ToArray(),
+            CommandResults = commandResults.ToArray(),
+            NextCommandSequence = nextCommandSequence,
             PopulationLimit = PopulationLimit,
             Mortality = Mortality,
             NextSpeciesId = nextSpeciesId,
@@ -78,7 +81,7 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6 or 7)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
         if (d.Version >= 6 && (d.PopulationLimit < MinimumPopulationLimit || d.PopulationLimit > AbsoluteMaximumPopulation))
             throw new ArgumentException("Invalid population limit.");
         if (d.Version >= 5)
@@ -165,6 +168,7 @@ public sealed partial class Simulation
             sim.random.State = d.RandomState!.Value;
             sim.events.AddRange(d.Events!);
         }
+        sim.RestoreCommands(d);
         return sim;
         void Position(Vec2 p) { Guard.Position(p, nameof(json)); if (p != sim.Clamp(p)) throw new ArgumentException("Position outside world."); }
     }
@@ -182,6 +186,9 @@ public sealed class WorldSave
     public int Height { get; set; }
     public int Seed { get; set; }
     public long Tick { get; set; }
+    public WorldCommand[] PendingCommands { get; set; } = [];
+    public CommandResult[] CommandResults { get; set; } = [];
+    public long NextCommandSequence { get; set; }
     public int PopulationLimit { get; set; }
     public MortalityStatistics? Mortality { get; set; }
     public long NextId { get; set; }

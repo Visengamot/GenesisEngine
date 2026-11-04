@@ -322,6 +322,11 @@ public sealed partial class Simulation
         using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
             SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
         Tick = checked(Tick + 1);
+        if (ExecuteCommands())
+        {
+            // Commands may spawn or erase entities after the initial reconciliation.
+            using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count)) SynchronizeEntities();
+        }
         foreach (var agent in Agents) agent.LethalCause = DeathCause.Other;
         using (Profiler?.Measure(SimulationPhase.Ecology, Environment.Width * Environment.Height))
         {
