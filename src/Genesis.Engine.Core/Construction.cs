@@ -16,6 +16,7 @@ public sealed class ConstructionSite
     public Vec2[] Route { get; set; } = [];
     public int Waypoint { get; set; }
     public long RetryTick { get; set; }
+    public long AssignmentDeadlineTick { get; set; }
     public string BlockReason { get; set; } = "";
     public float RequiredLabor => Kind == StructureKind.Hut ? 4 : 6;
 }
@@ -31,7 +32,7 @@ public sealed partial class Simulation
         ConstructionSite? site = null;
         foreach (var candidate in constructionSites)
             if (candidate.WorkerId == worker.Id) { site = candidate; break; }
-        if (site is null || worker.Energy < .35f) return false;
+        if (site is null || worker.Energy < .35f || Tick >= site.AssignmentDeadlineTick) return false;
         if (site.BlockReason.Length > 0) return true;
         while (site.Waypoint < site.Route.Length && DistanceSquared(worker.Position, site.Route[site.Waypoint]) < .04f) site.Waypoint++;
         if (site.Waypoint >= site.Route.Length) return true;
@@ -51,6 +52,19 @@ public sealed partial class Simulation
             var site = constructionSites[i];
             var tribe = tribes.FirstOrDefault(t => t.Id == site.TribeId);
             if (tribe is null) { constructionSites.RemoveAt(i); continue; } // Invested materials are abandoned.
+            if (site.WorkerId is not null && Tick >= site.AssignmentDeadlineTick)
+            {
+                var former = Agents.FirstOrDefault(a => a.Id == site.WorkerId);
+                if (site.MaterialsInTransit)
+                {
+                    if (former is not null) site.MaterialPosition = new((int)former.Position.X, (int)former.Position.Y);
+                    site.MaterialsInTransit = false;
+                }
+                site.WorkerId = null; site.Route = []; site.Waypoint = 0;
+                site.AssignmentDeadlineTick = 0; site.RetryTick = Tick + 90; site.BlockReason = "assignment-expired";
+                RecordEvent($"Племя {site.TribeId}: строитель освобождён по сроку, стройка сохранена.");
+                continue;
+            }
             var worker = Agents.FirstOrDefault(a => a.Id == site.WorkerId && a.Health > 0 && a.Energy >= .35f && tribe.MemberIds.Contains(a.Id));
             if (worker is null)
             {
@@ -61,13 +75,13 @@ public sealed partial class Simulation
                     if (former is not null) site.MaterialPosition = new((int)former.Position.X, (int)former.Position.Y);
                     site.MaterialsInTransit = false;
                 }
-                site.WorkerId = null; site.Route = []; site.Waypoint = 0;
+                site.WorkerId = null; site.Route = []; site.Waypoint = 0; site.AssignmentDeadlineTick = 0;
                 if (Tick < site.RetryTick) continue;
                 worker = Agents.Where(a => tribe.MemberIds.Contains(a.Id) && a.Health > 0 && a.Energy > .8f &&
                     !haulJobs.Any(j => j.WorkerId == a.Id) && !constructionSites.Any(s => s.WorkerId == a.Id))
                     .OrderBy(a => DistanceSquared(a.Position, site.Position)).ThenBy(a => a.Id).FirstOrDefault();
                 if (worker is null) { site.BlockReason = "no-worker"; site.RetryTick = Tick+30; continue; }
-                site.WorkerId = worker.Id; site.BlockReason = "route-needed";
+                site.WorkerId = worker.Id; site.AssignmentDeadlineTick = Tick + 1800; site.BlockReason = "route-needed";
             }
             if (site.BlockReason.Length > 0)
             {
@@ -78,7 +92,7 @@ public sealed partial class Simulation
                     if (site.MaterialsInTransit)
                     { site.MaterialPosition = new((int)worker.Position.X, (int)worker.Position.Y); site.MaterialsInTransit = false; }
                     site.Route = []; site.Waypoint = 0;
-                    site.WorkerId = null; site.BlockReason = path.Status.ToString(); site.RetryTick = Tick+90;
+                    site.WorkerId = null; site.AssignmentDeadlineTick = 0; site.BlockReason = path.Status.ToString(); site.RetryTick = Tick+90;
                     continue;
                 }
                 site.Route = path.Path.ToArray(); site.Waypoint = 0; site.BlockReason = "";
@@ -123,6 +137,9 @@ public sealed partial class Simulation
                 s.BlockReason is null || s.BlockReason.Length>64 ||
                 (s.WorkerId is int id && (!workers.Add(id)||!Agents.Any(a=>a.Id==id)||!tribes.Any(t=>t.Id==s.TribeId&&t.MemberIds.Contains(id)))))
                 throw new ArgumentException("Invalid construction site.");
+            if (save.Version < 18) s.AssignmentDeadlineTick = s.WorkerId is null ? 0 : Tick + 1800;
+            if (s.AssignmentDeadlineTick < 0 || (s.WorkerId is not null && s.AssignmentDeadlineTick == 0) ||
+                (s.WorkerId is null && s.AssignmentDeadlineTick != 0)) throw new ArgumentException("Invalid construction assignment deadline.");
             if (save.Version >= 15 && ((s.MaterialsDelivered && s.MaterialsInTransit) || (s.MaterialsInTransit && s.WorkerId is null) ||
                 (!s.MaterialsDelivered && s.Labor > 0))) throw new ArgumentException("Invalid construction material state.");
             foreach(var p in s.Route.Append(s.Position).Append(s.MaterialPosition))
