@@ -61,7 +61,9 @@ public sealed partial class Simulation
         if (civilizationClock < 1) return;
         float elapsed = civilizationClock; civilizationClock = 0;
         var social = Agents.Where(a => a.Genome.Sociality >= .5f && a.Energy > 0).OrderBy(a => a.Id).ToArray();
-        var available = social.ToDictionary(a => a.Id);
+        // Citizenship survives changing social traits and generational turnover.
+        // Sociality gates founding/joining only, not continued membership.
+        var available = Agents.Where(a => a.Energy > 0).ToDictionary(a => a.Id);
         foreach (var t in tribes) t.MemberIds.RemoveAll(id => !available.ContainsKey(id));
         tribes.RemoveAll(t => t.MemberIds.Count == 0);
         // Extinct settlements cannot reserve scarce structure slots or retain stale diplomacy.
@@ -87,7 +89,9 @@ public sealed partial class Simulation
         {
             var members = t.MemberIds.Select(id => available[id]).ToArray();
             t.Age += elapsed;
-            t.Center = new(members.Average(a => a.Position.X), members.Average(a => a.Position.Y));
+            // Once built, a settlement stays at its hut rather than following wandering citizens.
+            var home = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
+            t.Center = home?.Position ?? t.Center;
             foreach (var a in members)
             {
                 int x = (int)a.Position.X, y = (int)a.Position.Y;
@@ -143,7 +147,7 @@ public sealed partial class Simulation
     }
     private void BuildRoad(Tribe tribe)
     {
-        if (!tribe.HasFarming || !tribe.HasWeapons || tribe.Stone < .04f || tribe.Wood < .02f || structures.Count >= 128) return;
+        if (!tribe.HasFarming || !tribe.HasWeapons || tribe.Stone < .04f || tribe.Wood < .02f || structures.Count >= 128 || structures.Count(s => s.Kind == StructureKind.Road) >= 64) return;
         var hut = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut);
         var farm = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Farm);
         if (hut is null || farm is null) return;
@@ -161,7 +165,7 @@ public sealed partial class Simulation
 
     private void Build(Tribe t, StructureKind kind, float wood, float stone, bool enabled)
     {
-        if (!enabled || structures.Count >= 128 || structures.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
+        if (!enabled || structures.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
         Vec2? site = null;
         int searchRadius = kind == StructureKind.Farm ? 5 : 2;
         for (int dy = -searchRadius; dy <= searchRadius && site is null; dy++)
@@ -173,6 +177,13 @@ public sealed partial class Simulation
                 if (spaced && height >= 0 && height < 1.5f && Environment.Get((int)candidate.X, (int)candidate.Y).Fire < .05f && !structures.Any(s => s.Position == candidate)) site = candidate;
             }
         if (site is null) return;
+        // Old saves may already have all 128 slots filled by roads. Reclaim one road for housing/food.
+        if (structures.Count >= 128)
+        {
+            int road = structures.FindLastIndex(s => s.Kind == StructureKind.Road);
+            if (road < 0) return;
+            structures.RemoveAt(road);
+        }
         t.Wood -= wood; t.Stone -= stone;
         structures.Add(new(kind, site.Value, t.Id));
         string name = kind == StructureKind.Hut ? "хижину" : kind == StructureKind.Farm ? "ферму" : "дорогу";

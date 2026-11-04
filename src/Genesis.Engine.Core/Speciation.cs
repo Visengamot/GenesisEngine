@@ -69,6 +69,7 @@ public sealed partial class Simulation
     /// in lineage-ID order, then agent-ID order; extinct lineages are discarded after each refresh.</summary>
     public void RefreshSpecies()
     {
+        using var profile = Profiler?.Measure(SimulationPhase.SpeciesClassification, Agents.Count);
         if (classifiedAgents.Length == Agents.Count)
         {
             int index = 0;

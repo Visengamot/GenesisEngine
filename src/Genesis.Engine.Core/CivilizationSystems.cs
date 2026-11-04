@@ -102,7 +102,7 @@ public sealed partial class Simulation
         if (!visited.Contains(end.Position))
         {
             // At most one paid segment per pair per decision, subject to the global 128-structure cap.
-            if (!a.HasFarming || !a.HasWeapons || a.Wood < .02f || a.Stone < .04f || structures.Count >= 128) return;
+            if (!a.HasFarming || !a.HasWeapons || a.Wood < .02f || a.Stone < .04f || structures.Count >= 128 || structures.Count(s => s.Kind == StructureKind.Road) >= 64) return;
             var path = GridPathfinder.Find(Terrain, start.Position, end.Position,
                 (x, y) => !Safe(new(x, y)) || structures.Any(s => s.Position == new Vec2(x, y) &&
                     s.Position != start.Position && s.Position != end.Position &&

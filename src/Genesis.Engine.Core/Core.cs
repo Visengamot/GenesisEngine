@@ -317,16 +317,23 @@ public sealed partial class Simulation
     {
         Guard.Delta(dt);
         if (dt == 0) return;
-        ValidateAgents();
-        SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
+        using var tickProfile = Profiler?.Measure(SimulationPhase.Tick, Agents.Count);
+        using (Profiler?.Measure(SimulationPhase.Validation, Agents.Count)) ValidateAgents();
+        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
+            SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
         Tick = checked(Tick + 1);
         foreach (var agent in Agents) agent.LethalCause = DeathCause.Other;
-        Food.Renew(dt, Terrain);
-        StepEnvironment(dt);
-        SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
+        using (Profiler?.Measure(SimulationPhase.Ecology, Environment.Width * Environment.Height))
+        {
+            Food.Renew(dt, Terrain);
+            StepEnvironment(dt);
+        }
+        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
+            SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
         Span<float> inputs = stackalloc float[Agent.SensorCount];
         Span<float> output = stackalloc float[2];
         Span<float> scratch = stackalloc float[Agent.SensorCount + 2 + 128];
+        using (Profiler?.Measure(SimulationPhase.LocalBehavior, Agents.Count))
         foreach (var agent in Agents)
         {
             // Preserve public list order (food competition and replay), but perform movement against
@@ -368,6 +375,7 @@ public sealed partial class Simulation
             agent.Energy = vitality.Energy;
             if (agent.Energy <= 0) agent.LethalCause = DeathCause.EnergyDepletion;
         }
+        using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count))
         Agents.RemoveAll(agent =>
         {
             if (agent.Energy > 0 && agent.Age < MaximumAge) return false;
@@ -385,9 +393,10 @@ public sealed partial class Simulation
             Mortality = m with { LifetimeDeaths = m.LifetimeDeaths + 1 };
             return true;
         });
-        Reproduce(dt);
-        StepCivilization(dt);
-        SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
+        using (Profiler?.Measure(SimulationPhase.Reproduction, Agents.Count)) Reproduce(dt);
+        using (Profiler?.Measure(SimulationPhase.Civilization, Agents.Count)) StepCivilization(dt);
+        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
+            SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }
 
     /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls or impassable terrain), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
@@ -521,6 +530,10 @@ public sealed partial class Simulation
             used.Add(parent.Id);
             used.Add(mate.Id);
             Agents.Add(child);
+            // Membership is cultural, not a sociality gene: a newborn continues its family settlement.
+            var family = tribes.FirstOrDefault(t => t.MemberIds.Contains(parent.Id))
+                ?? tribes.FirstOrDefault(t => t.MemberIds.Contains(mate.Id));
+            family?.MemberIds.Add(child.Id);
         }
         RefreshSpecies();
     }

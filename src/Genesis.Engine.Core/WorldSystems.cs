@@ -141,7 +141,10 @@ public sealed partial class Simulation
         }
         // Reconcile public mutable Agents at the phase boundary; predicates read live energy
         // so a prey killed by an earlier predator is not selected again.
-        if (predators.Count > 0) agentStore.Rebuild(Agents);
+        if (predators.Count > 0)
+            using (Profiler?.Measure(SimulationPhase.SpatialIndex, Agents.Count)) agentStore.Rebuild(Agents);
+        using (Profiler?.Measure(SimulationPhase.PredatorBehavior, predators.Count))
+        {
         foreach (var p in predators)
         {
             var prey = agentStore.Nearest(p.Position, a => a.Energy > 0);
@@ -158,6 +161,7 @@ public sealed partial class Simulation
             }
         }
         predators.RemoveAll(p => p.Energy <= 0);
+        }
     }
     private static float DistanceSquared(Vec2 a, Vec2 b) { float dx = a.X - b.X, dy = a.Y - b.Y; return dx * dx + dy * dy; }
 }
