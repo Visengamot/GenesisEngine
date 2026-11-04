@@ -217,7 +217,9 @@ internal static class Game
                             selectedTribeId = tribes[(Array.IndexOf(tribes, selectedTribe) + 1) % tribes.Length].Id;
                         Text($"Жители {selectedTribe.MemberIds.Count} Еда {selectedTribe.Food:0.0} Дерево {selectedTribe.Wood:0.0}", 20, 671, 11, Muted);
                         Text($"Камень {selectedTribe.Stone:0.0} · опыт: еда {selectedTribe.FoodKnowledge:0.0} лес {selectedTribe.WoodKnowledge:0.0} камень {selectedTribe.StoneKnowledge:0.0}", 20, 686, 9, Muted);
-                        Text("Ветки: ✓ освоено / % изучено / — закрыто", 20, 700, 10, Ink);
+                        var need = simulation.MostNeededResource(selectedTribe);
+                        string needName = need == HaulResource.Food ? "пища" : need == HaulResource.Wood ? "дерево" : "камень";
+                        Text($"Приоритет: {needName} · сборщиков {simulation.HaulJobs.Count(j => j.TribeId == selectedTribe.Id)}", 20, 700, 10, Ink);
                         int techY = 715;
                         foreach (var research in selectedTribe.Research)
                         {

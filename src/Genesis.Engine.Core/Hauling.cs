@@ -28,17 +28,20 @@ public sealed partial class Simulation
     private void RestoreHauling(WorldSave save)
     {
         if (save.Version < 9) return;
-        if (save.HaulJobs is null || save.HaulJobs.Length > 32 || !float.IsFinite(save.LostHaulCargo) || save.LostHaulCargo < 0 ||
+        if (save.HaulJobs is null || save.HaulJobs.Length > (save.Version >= 10 ? 128 : 32) || !float.IsFinite(save.LostHaulCargo) || save.LostHaulCargo < 0 ||
             !float.IsFinite(save.DeliveredHaulCargo) || save.DeliveredHaulCargo < 0) throw new ArgumentException("Invalid hauling counters.");
-        var workers = new HashSet<int>(); var owners = new HashSet<int>();
+        var workers = new HashSet<int>();
+        var sourceClaims = new HashSet<(HaulResource, Vec2)>();
         foreach (var j in save.HaulJobs)
         {
-            if (j is null || !workers.Add(j.WorkerId) || !owners.Add(j.TribeId) || !Enum.IsDefined(j.Resource) || !Enum.IsDefined(j.Stage) ||
+            if (j is null || !workers.Add(j.WorkerId) || !Enum.IsDefined(j.Resource) || !Enum.IsDefined(j.Stage) ||
                 !float.IsFinite(j.Cargo) || j.Cargo < 0 || j.Cargo > .25f || j.RetryTick < 0 || j.Route is null ||
                 j.Route.Length > 513 || j.Waypoint < 0 || j.Waypoint > j.Route.Length || j.BlockReason is null || j.BlockReason.Length > 64 ||
                 !Agents.Any(a => a.Id == j.WorkerId) || !tribes.Any(t => t.Id == j.TribeId && t.MemberIds.Contains(j.WorkerId)) ||
                 !structures.Any(s => s.TribeId == j.TribeId && s.Kind == StructureKind.Hut && s.Position == j.Home))
                 throw new ArgumentException("Invalid hauling job.");
+            if (save.Version >= 10 && j.Cargo == 0 && !sourceClaims.Add((j.Resource, j.Source)))
+                throw new ArgumentException("Duplicate resource claim.");
             if ((j.Stage == HaulStage.Outbound && j.Cargo != 0) ||
                 ((j.Stage is HaulStage.Returning or HaulStage.WaitingForCapacity) && j.Cargo <= 0))
                 throw new ArgumentException("Inconsistent hauling stage and cargo.");
@@ -62,20 +65,39 @@ public sealed partial class Simulation
         _ => Environment.Get((int)p.X, (int)p.Y).Stone
     };
 
+    /// <summary>Stock deficits include committed loads; stable resource order breaks equal scores.</summary>
+    public HaulResource MostNeededResource(Tribe tribe)
+    {
+        ArgumentNullException.ThrowIfNull(tribe);
+        float Incoming(HaulResource resource) => haulJobs.Where(j => j.TribeId == tribe.Id && j.Resource == resource)
+            .Sum(j => j.Cargo > 0 ? j.Cargo : .25f);
+        float foodTarget = Math.Max(.5f, tribe.MemberIds.Count * .04f);
+        var needs = new[]
+        {
+            (Resource: HaulResource.Food, Score: (foodTarget - tribe.Food - Incoming(HaulResource.Food)) / foodTarget),
+            (Resource: HaulResource.Wood, Score: (2 - tribe.Wood - Incoming(HaulResource.Wood)) / 2),
+            (Resource: HaulResource.Stone, Score: (2 - tribe.Stone - Incoming(HaulResource.Stone)) / 2)
+        };
+        return needs.OrderByDescending(n => n.Score).ThenBy(n => n.Resource).First().Resource;
+    }
+
     private void AssignHauler(Tribe tribe, Agent[] members, Structure home)
     {
-        if (haulJobs.Any(j => j.TribeId == tribe.Id)) return;
+        // At most one new assignment per decision, up to four workers / a quarter of citizens.
+        int workerBudget = Math.Clamp(members.Length / 4, 1, 4);
+        if (haulJobs.Count >= 128 || haulJobs.Count(j => j.TribeId == tribe.Id) >= workerBudget) return;
         var worker = members.Where(a => a.Health > 0 && a.Energy > .8f && !haulJobs.Any(j => j.WorkerId == a.Id))
             .OrderBy(a => DistanceSquared(a.Position, home.Position)).ThenBy(a => a.Id).FirstOrDefault();
         if (worker is null) return;
-        var resource = tribe.Food < .5f ? HaulResource.Food : tribe.Wood <= tribe.Stone ? HaulResource.Wood : HaulResource.Stone;
+        var resource = MostNeededResource(tribe);
         // Bounded local candidates, not a full-world scan or per-agent global optimizer.
         var candidates = new List<Vec2>();
         for (int dy = -6; dy <= 6; dy++)
             for (int dx = -6; dx <= 6; dx++)
             {
                 var p = new Vec2((int)home.Position.X + dx, (int)home.Position.Y + dy);
-                if (p != Clamp(p) || !HaulPassable((int)p.X, (int)p.Y) || AvailableResource(resource, p) < .1f) continue;
+                if (p != Clamp(p) || !HaulPassable((int)p.X, (int)p.Y) || AvailableResource(resource, p) < .1f ||
+                    haulJobs.Any(j => j.Cargo == 0 && j.Resource == resource && j.Source == p)) continue;
                 candidates.Add(p);
             }
         foreach (var source in candidates.OrderBy(p => DistanceSquared(worker.Position, p)).ThenBy(p => p.Y).ThenBy(p => p.X).Take(4))
