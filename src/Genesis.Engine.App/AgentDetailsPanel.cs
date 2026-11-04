@@ -12,7 +12,7 @@ internal static class AgentDetailsPanel
     private static readonly Color Ink = new(224, 235, 229, 255);
     private static readonly Color Secondary = new(153, 176, 173, 255);
     private const int CardWidth = 350;
-    private const int CardHeight = 424;
+    private const int CardHeight = 548;
     private const int Gap = 12;
 
     internal static Rectangle Bounds(int screenWidth, int screenHeight, int sidebar, int top)
@@ -24,8 +24,37 @@ internal static class AgentDetailsPanel
         return new Rectangle(left, upper, width, height);
     }
 
+    internal static string[] DescribeActivity(Simulation world, int agentId)
+    {
+        string Point(Vec2 p) => $"({p.X:0}, {p.Y:0})";
+        string Reason(string reason) => reason switch
+        {
+            "" => "в пути / работа", "route-needed" or "return-route" => "поиск пути",
+            "route-blocked" => "путь перекрыт", "site-blocked" => "площадка недоступна",
+            "NoPath" => "пути нет", "BudgetExhausted" => "лимит поиска",
+            "InvalidEndpoint" => "недоступная цель", "storage-full" => "склад заполнен",
+            "no-worker" => "нет работника", "assignment-expired" => "срок истёк", _ => "ожидание"
+        };
+        var site = world.ConstructionSites.FirstOrDefault(s => s.WorkerId == agentId);
+        if (site is not null)
+            return [$"Стройка: {(site.Kind == StructureKind.Hut ? "хижина" : "ферма")} {Point(site.Position)}",
+                $"{(site.MaterialsInTransit ? "Несёт" : "Партия")}: дерево {site.CargoWood:0.00} · камень {site.CargoStone:0.00}",
+                $"Труд {site.Labor / site.RequiredLabor * 100:0}% · {Reason(site.BlockReason)}"];
+        var haul = world.HaulJobs.FirstOrDefault(j => j.WorkerId == agentId);
+        if (haul is not null)
+        {
+            string resource = haul.Resource == HaulResource.Food ? "еда" : haul.Resource == HaulResource.Wood ? "дерево" : "камень";
+            return [$"Доставка: {resource} · груз {haul.Cargo:0.00}",
+                $"Цель {Point(haul.Cargo > 0 ? haul.Home : haul.Source)}",
+                Reason(haul.BlockReason)];
+        }
+        var meal = world.MealJourneys.FirstOrDefault(j => j.WorkerId == agentId);
+        if (meal is not null) return ["Идёт за порцией еды", $"Дом {Point(meal.Home)}", "Питание из запаса племени"];
+        return ["Свободное поведение", "Поиск пищи и исследование", "Управление нейросетью"];
+    }
+
     /// <returns>True when the close button was clicked.</returns>
-    internal static bool Draw(Agent agent, int screenWidth, int screenHeight, int sidebar, int top, Font font)
+    internal static bool Draw(Simulation world, Agent agent, int screenWidth, int screenHeight, int sidebar, int top, Font font)
     {
         var rect = Bounds(screenWidth, screenHeight, sidebar, top);
         Raylib.DrawRectangleRounded(rect, .06f, 8, Background);
@@ -46,6 +75,10 @@ internal static class AgentDetailsPanel
         Line($"Общительность: {agent.Genome.Sociality:0.00}", 8);
         Line($"Агрессия: {agent.Genome.Aggression:0.00}", 9);
         Line($"Любознательность: {agent.Genome.Curiosity:0.00}", 10);
+        var activity = DescribeActivity(world, agent.Id);
+        Line(activity[0], 11, 13, true);
+        Line(activity[1], 12, 12);
+        Line(activity[2], 13, 12);
         Raylib.DrawTextEx(font, $"Мозг: {agent.Brain.HiddenNodeCount} узлов · {agent.Brain.ConnectionCount} связей",
             new Vector2(x, (rect.Y + rect.Height) - 27), 13, .3f, Secondary);
         var close = new Rectangle((rect.X + rect.Width) - 38, rect.Y + 12, 28, 28);

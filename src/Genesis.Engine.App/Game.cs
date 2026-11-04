@@ -250,7 +250,7 @@ internal static class Game
                 Text("F5 — сохранить   F9 — загрузить", 20, height - 90, 13, Ink);
                 Text("R — новый мир   Home — вид целиком", 20, height - 70, 12, Muted);
                 Raylib.EndScissorMode();
-                if (selected != null && AgentDetailsPanel.Draw(selected, width, height, Sidebar, Top, font))
+                if (selected != null && AgentDetailsPanel.Draw(simulation, selected, width, height, Sidebar, Top, font))
                     selectedId = -1;
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));
                 string status = accumulator >= 1f / 30
