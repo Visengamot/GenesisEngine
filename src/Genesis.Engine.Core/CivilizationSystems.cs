@@ -2,6 +2,26 @@ namespace Genesis.Engine.Core;
 
 public sealed partial class Simulation
 {
+    private void ServeMeals(Tribe tribe, Agent[] members, float elapsed)
+    {
+        var served = new HashSet<int>();
+        foreach (var hut in structures.Where(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut)
+            .OrderBy(s => s.Position.Y).ThenBy(s => s.Position.X))
+        {
+            int places = ResidentsPerHut;
+            foreach (var citizen in members.Where(a => a.Health > 0 && a.Energy > 0 && a.Energy < 3 &&
+                !served.Contains(a.Id) && DistanceSquared(a.Position, hut.Position) < 4)
+                .OrderBy(a => a.Energy).ThenBy(a => a.Id))
+            {
+                if (places == 0) break;
+                float meal = Math.Min(Math.Max(0, tribe.Food - .15f), Math.Min(.02f * elapsed, 3 - citizen.Energy));
+                if (meal <= 0) continue;
+                tribe.Food -= meal; citizen.Energy += meal;
+                served.Add(citizen.Id); places--;
+            }
+        }
+    }
+
     // One paid treatment of a real wound per decision, including after leaving the hazard.
     // Medicine restores health, never hunger energy; lethal wounds cannot be resurrected.
     private void TreatExposure(Tribe tribe, Agent[] members, float elapsed)

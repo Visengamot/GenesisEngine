@@ -118,11 +118,9 @@ public sealed partial class Simulation
             {
                 int x = (int)s.Position.X, y = (int)s.Position.Y;
                 if (s.Kind == StructureKind.Farm) Food.Set(x, y, Math.Min(1, Food.Get(x, y) + elapsed * .12f * EnvironmentGrid.Fertility(Environment.Get(x, y))));
-                if (s.Kind == StructureKind.Hut)
-                    foreach (var a in members.Where(a => DistanceSquared(a.Position, s.Position) < 4))
-                    { float meal = Math.Min(Math.Max(0, t.Food - .15f), .02f * elapsed); t.Food -= meal; a.Energy = Math.Min(3, a.Energy + meal); }
                 // Roads connect buildings by obstacle-aware routes; no free energy bonus.
             }
+            ServeMeals(t, members, elapsed);
             TreatExposure(t, members, elapsed);
             MaintainFirebreak(t, elapsed);
             HuntPredators(t, members, elapsed);
