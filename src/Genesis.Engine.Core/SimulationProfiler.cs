@@ -7,7 +7,8 @@ public enum SimulationPhase
 {
     Tick, Validation, StateSynchronization, Ecology, LocalBehavior,
     DeathRemoval, Reproduction, SpeciesClassification, Civilization,
-    SpatialIndex, PredatorBehavior
+    SpatialIndex, PredatorBehavior,
+    Hauling, HaulAssignment, Construction, MealAssignment, MealService, MealCleanup
 }
 
 public sealed record PhaseProfile(SimulationPhase Phase, int RetainedSamples, long TotalSamples,

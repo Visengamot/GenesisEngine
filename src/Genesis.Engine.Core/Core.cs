@@ -387,13 +387,13 @@ public sealed partial class Simulation
         }
         using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count))
             RemoveDeadAgents();
-        StepHauling();
+        using (Profiler?.Measure(SimulationPhase.Hauling, haulJobs.Count)) StepHauling();
         using (Profiler?.Measure(SimulationPhase.Reproduction, Agents.Count)) Reproduce(dt);
         using (Profiler?.Measure(SimulationPhase.Civilization, Agents.Count)) StepCivilization(dt);
         using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count)) RemoveDeadAgents();
-        StepHauling(cleanupOnly: true);
-        StepConstruction(dt);
-        CleanMealJourneys();
+        using (Profiler?.Measure(SimulationPhase.Hauling, haulJobs.Count)) StepHauling(cleanupOnly: true);
+        using (Profiler?.Measure(SimulationPhase.Construction, constructionSites.Count)) StepConstruction(dt);
+        using (Profiler?.Measure(SimulationPhase.MealCleanup, mealJourneys.Count)) CleanMealJourneys();
         using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
             SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }

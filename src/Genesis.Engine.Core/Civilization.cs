@@ -94,8 +94,9 @@ public sealed partial class Simulation
             // Once built, a settlement stays at its hut rather than following wandering citizens.
             var home = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
             t.Center = home?.Position ?? t.Center;
-            if (home is not null) AssignHauler(t, members, home);
-            AssignMealJourney(t, members);
+            if (home is not null)
+                using (Profiler?.Measure(SimulationPhase.HaulAssignment, members.Length)) AssignHauler(t, members, home);
+            using (Profiler?.Measure(SimulationPhase.MealAssignment, members.Length)) AssignMealJourney(t, members);
             // Bootstrap gathering remains only until the first physical home exists.
             foreach (var a in home is null ? members : Array.Empty<Agent>())
             {
@@ -121,7 +122,7 @@ public sealed partial class Simulation
                 if (s.Kind == StructureKind.Farm) Food.Set(x, y, Math.Min(1, Food.Get(x, y) + elapsed * .12f * EnvironmentGrid.Fertility(Environment.Get(x, y))));
                 // Roads connect buildings by obstacle-aware routes; no free energy bonus.
             }
-            ServeMeals(t, members, elapsed);
+            using (Profiler?.Measure(SimulationPhase.MealService, members.Length)) ServeMeals(t, members, elapsed);
             TreatExposure(t, members, elapsed);
             MaintainFirebreak(t, elapsed);
             HuntPredators(t, members, elapsed);
