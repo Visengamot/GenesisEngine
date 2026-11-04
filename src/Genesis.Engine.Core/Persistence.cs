@@ -14,7 +14,7 @@ public sealed partial class Simulation
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 13,
+            Version = 14,
             ConstructionSites = constructionSites.ToArray(),
             HaulSourceFailures = haulSourceFailures.ToArray(),
             HaulJobs = haulJobs.ToArray(),
@@ -87,7 +87,7 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13 or 14)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
         if (d.Version >= 6 && (d.PopulationLimit < MinimumPopulationLimit || d.PopulationLimit > AbsoluteMaximumPopulation))
             throw new ArgumentException("Invalid population limit.");
         if (d.Version >= 5)
@@ -106,6 +106,7 @@ public sealed partial class Simulation
             d.Predators is null || d.Predators.Length > 64 || d.Tribes is null || d.Tribes.Length > 32 || d.Structures is null || d.Structures.Length > 128 || d.Relations is null || d.Relations.Length > 496 || d.Tick < 0 || d.NextId < 0 || d.NextId > (long)int.MaxValue + 1 || d.NextTribeId < 0)
             throw new ArgumentException("Invalid snapshot collections or counters.");
         Range(d.CivilizationClock, 0, 2);
+        if (d.CivilizationClock >= 1) throw new ArgumentException("Invalid civilization remainder.");
         var sim = new Simulation(d.Width, d.Height, d.Seed);
         sim.SetPopulationLimit(d.Version >= 6 ? d.PopulationLimit : MaximumPopulation);
         sim.Agents.Clear(); sim.Tick = d.Tick; sim.nextId = d.NextId; sim.nextTribeId = d.NextTribeId; sim.civilizationClock = d.CivilizationClock;

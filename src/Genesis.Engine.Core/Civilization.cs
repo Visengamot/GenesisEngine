@@ -57,9 +57,11 @@ public sealed partial class Simulation
     partial void StepCivilization(float dt)
     {
         civilizationClock += dt;
-        // Fixed one-second decision cadence, with bounded resource rates between decisions.
+        // Step accepts at most one second, so a valid remainder needs at most one decision.
+        // Retain fractional time instead of losing up to one tick at every decision.
         if (civilizationClock < 1) return;
-        float elapsed = civilizationClock; civilizationClock = 0;
+        const float elapsed = 1;
+        civilizationClock -= 1;
         var social = Agents.Where(a => a.Genome.Sociality >= .5f && a.Energy > 0).OrderBy(a => a.Id).ToArray();
         // Citizenship survives changing social traits and generational turnover.
         // Sociality gates founding/joining only, not continued membership.
