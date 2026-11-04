@@ -15,6 +15,20 @@ public sealed class ConstructionSite
     public float DeliveredMaterialAmount { get; set; }
     public float CargoMaterialAmount { get; set; }
     public float TotalMaterialAmount => PaidWood + PaidStone;
+    // Canonical wood-first packing: amounts encode an ordered prefix of the paid recipe.
+    // Derived typed quantities cannot drift apart from the compact v20 save representation.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float DeliveredWood => Math.Min(PaidWood, DeliveredMaterialAmount);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float DeliveredStone => Math.Min(PaidStone, Math.Max(0, DeliveredMaterialAmount - PaidWood));
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float CargoWood => Math.Min(Math.Max(0, PaidWood - DeliveredWood), CargoMaterialAmount);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float CargoStone => Math.Min(Math.Max(0, PaidStone - DeliveredStone), Math.Max(0, CargoMaterialAmount - CargoWood));
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float UncollectedWood => Math.Max(0, PaidWood - DeliveredWood - CargoWood);
+    [System.Text.Json.Serialization.JsonIgnore]
+    public float UncollectedStone => Math.Max(0, PaidStone - DeliveredStone - CargoStone);
     public Vec2 Destination => MaterialsDelivered || MaterialsInTransit ? Position : MaterialPosition;
     public int? WorkerId { get; set; }
     public Vec2[] Route { get; set; } = [];
@@ -128,7 +142,8 @@ public sealed partial class Simulation
                 {
                     site.DeliveredMaterialAmount = Math.Min(site.TotalMaterialAmount, site.DeliveredMaterialAmount + site.CargoMaterialAmount);
                     site.CargoMaterialAmount = 0; site.MaterialsInTransit = false;
-                    site.MaterialsDelivered = site.DeliveredMaterialAmount >= site.TotalMaterialAmount - .000001f;
+                    site.MaterialsDelivered = site.DeliveredWood >= site.PaidWood - .000001f &&
+                        site.DeliveredStone >= site.PaidStone - .000001f;
                     site.MaterialPosition = site.MaterialOrigin;
                 }
                 else
