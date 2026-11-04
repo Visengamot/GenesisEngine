@@ -451,14 +451,14 @@ public sealed partial class Simulation
                 entity = entities.Create();
                 entityByAgentId.Add(agent.Id, entity);
                 entities.Add(entity, new PositionComponent(agent.Position));
-                entities.Add(entity, new VitalityComponent(agent.Health, agent.Energy));
+                entities.Add(entity, new VitalityComponent(Energy: agent.Energy, Health: agent.Health));
                 entities.Add(entity, new GenomeComponent(agent.Genome));
                 entities.Add(entity, new BrainComponent(agent.Brain));
             }
             else
             {
                 entities.Get<PositionComponent>(entity) = new(agent.Position);
-                entities.Get<VitalityComponent>(entity) = new(agent.Health, agent.Energy);
+                entities.Get<VitalityComponent>(entity) = new(Energy: agent.Energy, Health: agent.Health);
                 entities.Get<GenomeComponent>(entity) = new(agent.Genome);
                 entities.Get<BrainComponent>(entity) = new(agent.Brain);
             }
