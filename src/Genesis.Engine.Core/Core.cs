@@ -363,6 +363,7 @@ public sealed partial class Simulation
             var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
             if (TryConstructionMotion(agent, dt, out var buildMotion)) motion = buildMotion;
             else if (TryHaulMotion(agent, dt, out var haulMotion)) motion = haulMotion;
+            else if (TryMealMotion(agent, dt, out var mealMotion)) motion = mealMotion;
             float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
             if (length > 1) motion *= 1 / length;
             // Preserve the original terrain drag, but sweep the slowed motion through every intervening
@@ -392,6 +393,7 @@ public sealed partial class Simulation
         using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count)) RemoveDeadAgents();
         StepHauling(cleanupOnly: true);
         StepConstruction(dt);
+        CleanMealJourneys();
         using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
             SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }

@@ -18,6 +18,7 @@ public sealed partial class Simulation
                 if (meal <= 0) continue;
                 tribe.Food -= meal; citizen.Energy += meal;
                 served.Add(citizen.Id); places--;
+                mealJourneys.RemoveAll(j => j.WorkerId == citizen.Id);
             }
         }
     }

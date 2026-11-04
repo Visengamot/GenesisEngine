@@ -95,6 +95,7 @@ public sealed partial class Simulation
             var home = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
             t.Center = home?.Position ?? t.Center;
             if (home is not null) AssignHauler(t, members, home);
+            AssignMealJourney(t, members);
             // Bootstrap gathering remains only until the first physical home exists.
             foreach (var a in home is null ? members : Array.Empty<Agent>())
             {
