@@ -207,6 +207,8 @@ public sealed class Agent
     public Vec2 Position;
     public Genome Genome;
     public float Energy = 1;
+    /// <summary>Physical health [0,1]; eating restores energy, not wounds.</summary>
+    public float Health { get; internal set; } = 1;
     public float Age { get; internal set; }
     public int Generation { get; internal set; }
     public NeuralNetwork Brain { get; }
@@ -346,7 +348,7 @@ public sealed partial class Simulation
             var entity = entityByAgentId[agent.Id];
             ref var position = ref entities.Get<PositionComponent>(entity);
             ref var vitality = ref entities.Get<VitalityComponent>(entity);
-            if (vitality.Energy <= 0 || agent.Age >= MaximumAge) continue;
+            if (agent.Health <= 0 || vitality.Energy <= 0 || agent.Age >= MaximumAge) continue;
             var genome = entities.Get<GenomeComponent>(entity).Value;
             var brain = entities.Get<BrainComponent>(entity).Network;
             agent.Age += dt;
@@ -381,25 +383,10 @@ public sealed partial class Simulation
             if (agent.Energy <= 0) agent.LethalCause = DeathCause.EnergyDepletion;
         }
         using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count))
-        Agents.RemoveAll(agent =>
-        {
-            if (agent.Energy > 0 && agent.Age < MaximumAge) return false;
-            var m = Mortality;
-            // Age has priority even when exposure depleted energy in the same tick.
-            m = agent.Age >= MaximumAge ? m with { OldAge = m.OldAge + 1 }
-                : agent.LethalCause switch
-                {
-                    DeathCause.Fire => m with { Fire = m.Fire + 1 },
-                    DeathCause.Predator => m with { Predators = m.Predators + 1 },
-                    DeathCause.Climate => m with { Climate = m.Climate + 1 },
-                    DeathCause.EnergyDepletion => m with { EnergyDepletion = m.EnergyDepletion + 1 },
-                    _ => m with { Other = m.Other + 1 }
-                };
-            Mortality = m with { LifetimeDeaths = m.LifetimeDeaths + 1 };
-            return true;
-        });
+            RemoveDeadAgents();
         using (Profiler?.Measure(SimulationPhase.Reproduction, Agents.Count)) Reproduce(dt);
         using (Profiler?.Measure(SimulationPhase.Civilization, Agents.Count)) StepCivilization(dt);
+        using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count)) RemoveDeadAgents();
         using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
             SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }
@@ -461,14 +448,14 @@ public sealed partial class Simulation
                 entity = entities.Create();
                 entityByAgentId.Add(agent.Id, entity);
                 entities.Add(entity, new PositionComponent(agent.Position));
-                entities.Add(entity, new VitalityComponent(agent.Energy, agent.Energy));
+                entities.Add(entity, new VitalityComponent(agent.Health, agent.Energy));
                 entities.Add(entity, new GenomeComponent(agent.Genome));
                 entities.Add(entity, new BrainComponent(agent.Brain));
             }
             else
             {
                 entities.Get<PositionComponent>(entity) = new(agent.Position);
-                entities.Get<VitalityComponent>(entity) = new(agent.Energy, agent.Energy);
+                entities.Get<VitalityComponent>(entity) = new(agent.Health, agent.Energy);
                 entities.Get<GenomeComponent>(entity) = new(agent.Genome);
                 entities.Get<BrainComponent>(entity) = new(agent.Brain);
             }
@@ -487,6 +474,8 @@ public sealed partial class Simulation
             Guard.Position(agent.Heading, nameof(Agents));
             Guard.Finite(agent.Age, nameof(Agents));
             Guard.Finite(agent.Energy, nameof(Agents));
+            if (!float.IsFinite(agent.Health) || agent.Health < 0 || agent.Health > 1)
+                throw new ArgumentOutOfRangeException(nameof(Agents), "Invalid health.");
             agent.Genome.Validate();
             if (agent.Position != Clamp(agent.Position)) throw new ArgumentOutOfRangeException(nameof(Agents), "Agent is outside the map.");
             nextId = Math.Max(nextId, (long)agent.Id + 1);
@@ -500,7 +489,7 @@ public sealed partial class Simulation
         var sizes = Species.ToDictionary(s => s.Id, s => s.MemberCount);
         // Online fitness sharing prioritizes rare compatible groups when local mates/capacity are scarce.
         // This is steady-state ecological selection, not generations, species quotas or full NEAT.
-        var parents = Agents.Where(a => a.Age >= 5 && a.Energy >= 1.7f)
+        var parents = Agents.Where(a => a.Health > 0 && a.Age >= 5 && a.Energy >= 1.7f)
             .OrderByDescending(a => ReproductiveFitness(a) / sizes[a.SpeciesId])
             .ThenBy(a => a.Id).ToArray();
         var used = new HashSet<int>();

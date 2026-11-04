@@ -14,7 +14,7 @@ public sealed partial class Simulation
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 7,
+            Version = 8,
             PendingCommands = pendingCommands.ToArray(),
             CommandResults = commandResults.ToArray(),
             NextCommandSequence = nextCommandSequence,
@@ -41,6 +41,7 @@ public sealed partial class Simulation
                 SpeciesId = a.SpeciesId,
                 Position = a.Position,
                 Energy = a.Energy,
+                Health = a.Health,
                 Age = a.Age,
                 Generation = a.Generation,
                 OffspringCount = a.OffspringCount,
@@ -81,7 +82,7 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6 or 7)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
         if (d.Version >= 6 && (d.PopulationLimit < MinimumPopulationLimit || d.PopulationLimit > AbsoluteMaximumPopulation))
             throw new ArgumentException("Invalid population limit.");
         if (d.Version >= 5)
@@ -115,12 +116,13 @@ public sealed partial class Simulation
         foreach (var a in d.Agents)
         {
             if (a is null || a.Traits?.Length != 7 || a.Brain is null || a.Generation < 0 || a.OffspringCount < 0) throw new ArgumentException("Invalid agent snapshot.");
+            if (d.Version >= 8) Range(a.Health, 0, 1);
             Range(a.Energy, 0, 3); Range(a.Age, 0, d.Version <= 5 ? 181 : MaximumAge + 1); Guard.Position(a.Heading, nameof(a.Heading));
             float[] g = a.Traits;
             Range(g[0], .1f, 3); Range(g[1], .25f, 3); Range(g[2], 1, 12); Range(g[3], .1f, 3);
             Range(g[4], 0, 1); Range(g[5], 0, 1); Range(g[6], 0, 1);
             var genome = new Genome(g[0], g[1], g[2], g[3], g[4], g[5], g[6]);
-            sim.Agents.Add(new(a.Id, a.Position, genome, new NeuralNetwork(a.Brain)) { Energy = a.Energy, Age = a.Age, Generation = a.Generation, OffspringCount = a.OffspringCount, Heading = a.Heading });
+            sim.Agents.Add(new(a.Id, a.Position, genome, new NeuralNetwork(a.Brain)) { Health = d.Version >= 8 ? a.Health : 1, Energy = a.Energy, Age = a.Age, Generation = a.Generation, OffspringCount = a.OffspringCount, Heading = a.Heading });
         }
         sim.ValidateAgents();
         sim.AllowInterspeciesMating = d.AllowInterspeciesMating;
@@ -218,6 +220,7 @@ public sealed class AgentSave
     public Vec2 Position { get; set; }
     public float[] Traits { get; set; } = [];
     public float Energy { get; set; }
+    public float Health { get; set; } = 1;
     public float Age { get; set; }
     public Vec2 Heading { get; set; }
     public int Generation { get; set; }

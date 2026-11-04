@@ -140,10 +140,8 @@ public sealed partial class Simulation
             var c = Environment.Get((int)a.Position.X, (int)a.Position.Y);
             float fireDamage = dt * c.Fire * .7f;
             float climateDamage = dt * Math.Max(0, Math.Abs(c.Temperature - 22) - 15) * .0015f;
-            float before = a.Energy;
-            a.Energy = Math.Clamp(before - fireDamage - climateDamage, 0, 3);
-            if (before > 0 && a.Energy <= 0)
-                a.LethalCause = fireDamage >= climateDamage ? DeathCause.Fire : DeathCause.Climate;
+            Damage(a, fireDamage, DamageKind.Fire);
+            Damage(a, climateDamage, DamageKind.Climate);
         }
         // Reconcile public mutable Agents at the phase boundary; predicates read live energy
         // so a prey killed by an earlier predator is not selected again.
@@ -153,16 +151,14 @@ public sealed partial class Simulation
         {
         foreach (var p in predators)
         {
-            var prey = agentStore.Nearest(p.Position, a => a.Energy > 0);
+            var prey = agentStore.Nearest(p.Position, a => a.Health > 0 && a.Energy > 0);
             p.Energy = Math.Max(0, p.Energy - dt * .025f);
             if (prey is null) continue;
             float distance = MathF.Sqrt(DistanceSquared(prey.Position, p.Position));
             if (distance > .5f) p.Position = Clamp(p.Position + new Vec2(prey.Position.X - p.Position.X, prey.Position.Y - p.Position.Y) * (Math.Min(distance, dt * 2.5f) / distance));
             if (DistanceSquared(prey.Position, p.Position) < 1)
             {
-                float damage = Math.Min(prey.Energy, dt * .35f);
-                prey.Energy -= damage;
-                if (prey.Energy <= 0 && damage > 0) prey.LethalCause = DeathCause.Predator;
+                float damage = Damage(prey, dt * .35f, DamageKind.Predator);
                 p.Energy = Math.Min(3, p.Energy + damage * .6f);
             }
         }

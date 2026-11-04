@@ -2,20 +2,18 @@ namespace Genesis.Engine.Core;
 
 public sealed partial class Simulation
 {
-    // One treatment per decision, only after environmental exposure, spending stored food.
-    // The medicine cannot cure starvation or create food; it replaces some exposure damage.
+    // One paid treatment of a real wound per decision, including after leaving the hazard.
+    // Medicine restores health, never hunger energy; lethal wounds cannot be resurrected.
     private void TreatExposure(Tribe tribe, Agent[] members, float elapsed)
     {
         if (!tribe.HasMedicine || tribe.Food < .04f) return;
         foreach (var member in members.OrderBy(a => a.Id))
         {
-            var cell = Environment.Get((int)member.Position.X, (int)member.Position.Y);
-            if (cell.Fire < .05f && Math.Abs(cell.Temperature - 22) <= 37) continue;
-            if (member.Energy <= 0 || member.Energy >= 3) continue;
-            float treatment = Math.Min(.03f * Math.Min(elapsed, 1), 3 - member.Energy);
+            if (member.Health <= 0 || member.Energy <= 0 || member.Health >= 1) continue;
+            float treatment = Math.Min(.03f * Math.Min(elapsed, 1), 1 - member.Health);
             if (treatment <= 0) continue;
             tribe.Food -= .04f;
-            member.Energy += treatment;
+            member.Health += treatment;
             return;
         }
     }
@@ -51,7 +49,7 @@ public sealed partial class Simulation
         if (tribe.Wood < woodCost || tribe.Stone < stoneCost) return;
         foreach (var hunter in members.OrderBy(a => a.Id))
         {
-            if (hunter.Energy <= .05f * effort) continue;
+            if (hunter.Health <= 0 || hunter.Energy <= .05f * effort) continue;
             var prey = predators.Where(p => p.Energy > 0 && DistanceSquared(p.Position, hunter.Position) <= 2.25f)
                 .MinBy(p => DistanceSquared(p.Position, hunter.Position));
             if (prey is null) continue;

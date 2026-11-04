@@ -38,7 +38,7 @@ internal static class AgentDetailsPanel
         Line($"ЖИТЕЛЬ №{agent.Id}", 0, 22, true);
         Line($"Вид {agent.SpeciesId}  ·  Поколение {agent.Generation}", 1, 15);
         Raylib.DrawLine((int)x, (int)(y + 75), (int)((rect.X + rect.Width) - 20), (int)(y + 75), Secondary);
-        Line($"Возраст: {agent.Age:0.0} с", 3);
+        Line($"Здоровье: {agent.Health * 100:0}% · Возраст: {agent.Age:0.0} с", 3, 15);
         Line($"Энергия: {agent.Energy:0.00} из 3", 4);
         Line($"Скорость: {agent.Genome.Speed:0.00}", 5);
         Line($"Размер: {agent.Genome.Size:0.00}  ·  Зрение: {agent.Genome.Vision:0.0}", 6, 15);

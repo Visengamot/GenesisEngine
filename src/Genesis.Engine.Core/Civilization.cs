@@ -140,7 +140,7 @@ public sealed partial class Simulation
                     foreach (int id in a.MemberIds.Concat(b.MemberIds))
                     {
                         var member = available[id]; var enemy = a.MemberIds.Contains(id) ? b : a;
-                        if (DistanceSquared(member.Position, enemy.Center) < 16) member.Energy = Math.Max(0, member.Energy - elapsed * (enemy.HasWeapons ? .04f : .02f));
+                        if (DistanceSquared(member.Position, enemy.Center) < 16) Damage(member, elapsed * (enemy.HasWeapons ? .04f : .02f), DamageKind.Conflict);
                     }
                 }
             }
