@@ -177,12 +177,20 @@ internal static class WorldRenderer
     static void DrawActors(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport)
     {
         var time = world.Tick / 30f;
-        foreach (var structure in world.Structures)
+        foreach (var site in world.ConstructionSites)
+        {
+            float px = origin.X + site.Position.X * cell, py = origin.Y + site.Position.Y * cell;
+            if (!Visible(px, py, cell * 2, viewport)) continue;
+            Rect(px, py, cell, cell, site.MaterialsDelivered ? new Color(111, 81, 55, 200) : new Color(92, 104, 125, 200));
+            Rect(px, py + cell * .8f, cell * (site.Labor / site.RequiredLabor), Math.Max(1, cell * .15f), new Color(231, 196, 107, 255));
+        }
+        // Roads are ground detail: never paint over a hut/farm drawn earlier.
+        foreach (var structure in world.Structures.OrderBy(s => s.Kind == StructureKind.Road ? 0 : 1))
         {
             float px = origin.X + structure.Position.X * cell, py = origin.Y + structure.Position.Y * cell;
             if (!Visible(px, py, cell * 2, viewport)) continue;
             var kind = structure.Kind.ToString();
-            if (kind == "Road") { Rect(px, py, cell, cell, new Color(153, 131, 89, 220)); continue; }
+            if (kind == "Road") { Rect(px + cell * .3f, py + cell * .3f, cell * .4f, cell * .4f, new Color(153, 131, 89, 200)); continue; }
             if (kind == "Farm")
             {
                 Rect(px - cell * .4f, py - cell * .4f, cell * 1.8f, cell * 1.8f, new Color(102, 74, 43, 255));

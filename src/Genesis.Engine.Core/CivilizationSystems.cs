@@ -2,20 +2,39 @@ namespace Genesis.Engine.Core;
 
 public sealed partial class Simulation
 {
-    // One treatment per decision, only after environmental exposure, spending stored food.
-    // The medicine cannot cure starvation or create food; it replaces some exposure damage.
+    private void ServeMeals(Tribe tribe, Agent[] members, float elapsed)
+    {
+        var served = new HashSet<int>();
+        foreach (var hut in structures.Where(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut)
+            .OrderBy(s => s.Position.Y).ThenBy(s => s.Position.X))
+        {
+            int places = ResidentsPerHut;
+            foreach (var citizen in members.Where(a => a.Health > 0 && a.Energy > 0 && a.Energy < 3 &&
+                !served.Contains(a.Id) && DistanceSquared(a.Position, hut.Position) < 4)
+                .OrderBy(a => a.Energy).ThenBy(a => a.Id))
+            {
+                if (places == 0) break;
+                float meal = Math.Min(Math.Max(0, tribe.Food - .15f), Math.Min(.02f * elapsed, 3 - citizen.Energy));
+                if (meal <= 0) continue;
+                tribe.Food -= meal; citizen.Energy += meal;
+                served.Add(citizen.Id); places--;
+                mealJourneys.RemoveAll(j => j.WorkerId == citizen.Id);
+            }
+        }
+    }
+
+    // One paid treatment of a real wound per decision, including after leaving the hazard.
+    // Medicine restores health, never hunger energy; lethal wounds cannot be resurrected.
     private void TreatExposure(Tribe tribe, Agent[] members, float elapsed)
     {
         if (!tribe.HasMedicine || tribe.Food < .04f) return;
         foreach (var member in members.OrderBy(a => a.Id))
         {
-            var cell = Environment.Get((int)member.Position.X, (int)member.Position.Y);
-            if (cell.Fire < .05f && Math.Abs(cell.Temperature - 22) <= 37) continue;
-            if (member.Energy <= 0 || member.Energy >= 3) continue;
-            float treatment = Math.Min(.03f * Math.Min(elapsed, 1), 3 - member.Energy);
+            if (member.Health <= 0 || member.Energy <= 0 || member.Health >= 1) continue;
+            float treatment = Math.Min(.03f * Math.Min(elapsed, 1), 1 - member.Health);
             if (treatment <= 0) continue;
             tribe.Food -= .04f;
-            member.Energy += treatment;
+            member.Health += treatment;
             return;
         }
     }
@@ -51,7 +70,7 @@ public sealed partial class Simulation
         if (tribe.Wood < woodCost || tribe.Stone < stoneCost) return;
         foreach (var hunter in members.OrderBy(a => a.Id))
         {
-            if (hunter.Energy <= .05f * effort) continue;
+            if (hunter.Health <= 0 || hunter.Energy <= .05f * effort) continue;
             var prey = predators.Where(p => p.Energy > 0 && DistanceSquared(p.Position, hunter.Position) <= 2.25f)
                 .MinBy(p => DistanceSquared(p.Position, hunter.Position));
             if (prey is null) continue;
@@ -102,9 +121,9 @@ public sealed partial class Simulation
         if (!visited.Contains(end.Position))
         {
             // At most one paid segment per pair per decision, subject to the global 128-structure cap.
-            if (!a.HasFarming || !a.HasWeapons || a.Wood < .02f || a.Stone < .04f || structures.Count >= 128) return;
+            if (!a.HasFarming || !a.HasWeapons || a.Wood < .02f || a.Stone < .04f || structures.Count + constructionSites.Count >= 128 || structures.Count(s => s.Kind == StructureKind.Road) >= 64) return;
             var path = GridPathfinder.Find(Terrain, start.Position, end.Position,
-                (x, y) => !Safe(new(x, y)) || structures.Any(s => s.Position == new Vec2(x, y) &&
+                (x, y) => !Safe(new(x, y)) || constructionSites.Any(s => s.Position == new Vec2(x,y)) || structures.Any(s => s.Position == new Vec2(x, y) &&
                     s.Position != start.Position && s.Position != end.Position &&
                     (s.Kind != StructureKind.Road || (s.TribeId != a.Id && s.TribeId != b.Id))));
             foreach (var point in path.Skip(1).SkipLast(1))

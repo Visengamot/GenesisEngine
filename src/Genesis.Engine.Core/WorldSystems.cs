@@ -98,6 +98,8 @@ public sealed partial class Simulation
         {
             bool Inside(Vec2 p) { double dx = (double)p.X - position.X, dy = (double)p.Y - position.Y; return dx * dx + dy * dy <= (double)radius * radius; }
             Agents.RemoveAll(a => Inside(a.Position)); predators.RemoveAll(p => Inside(p.Position)); structures.RemoveAll(s => Inside(s.Position));
+            for (int i = constructionSites.Count - 1; i >= 0; i--)
+                if (Inside(constructionSites[i].Position)) AbandonConstruction(i, "стирание");
         }
     }
 
@@ -118,9 +120,15 @@ public sealed partial class Simulation
                 float adjacent = NeighborFire(x - 1, y) + NeighborFire(x + 1, y) + NeighborFire(x, y - 1) + NeighborFire(x, y + 1);
                 float fire = c.Fire + dt * (adjacent * .12f * c.Wood * (1 - c.Moisture) + c.Fire * c.Wood * (1 - c.Moisture) * .3f - c.Fire * (.2f + c.Moisture));
                 if (c.Wood < .01f) fire -= .5f * dt;
+                // Replenishment balances evaporation at the terrain's normal climate.
+                // Previously even 22 C lost .0014 moisture/second forever: every plain became desert.
+                float elevation = Terrain.Get(x, y);
+                float normalTemperature = 22 - elevation * 8;
+                float normalMoisture = Math.Clamp(.65f - elevation * .25f, 0, 1);
+                float excessHeat = Math.Max(0, c.Temperature - normalTemperature);
                 c = c with
                 {
-                    Moisture = c.Moisture + dt * (.003f - Math.Max(0, c.Temperature) * .0002f - c.Fire * .04f),
+                    Moisture = c.Moisture + dt * ((normalMoisture - c.Moisture) * .01f - excessHeat * .0002f - c.Fire * .04f),
                     Temperature = c.Temperature + dt * ((22 - Terrain.Get(x, y) * 8 - c.Temperature) * .01f + c.Fire * 4),
                     Vegetation = c.Vegetation + dt * fertility * .015f - burning * .4f,
                     Wood = c.Wood + dt * fertility * .005f - burning * .3f,
@@ -134,30 +142,30 @@ public sealed partial class Simulation
             var c = Environment.Get((int)a.Position.X, (int)a.Position.Y);
             float fireDamage = dt * c.Fire * .7f;
             float climateDamage = dt * Math.Max(0, Math.Abs(c.Temperature - 22) - 15) * .0015f;
-            float before = a.Energy;
-            a.Energy = Math.Clamp(before - fireDamage - climateDamage, 0, 3);
-            if (before > 0 && a.Energy <= 0)
-                a.LethalCause = fireDamage >= climateDamage ? DeathCause.Fire : DeathCause.Climate;
+            Damage(a, fireDamage, DamageKind.Fire);
+            Damage(a, climateDamage, DamageKind.Climate);
         }
         // Reconcile public mutable Agents at the phase boundary; predicates read live energy
         // so a prey killed by an earlier predator is not selected again.
-        if (predators.Count > 0) agentStore.Rebuild(Agents);
+        if (predators.Count > 0)
+            using (Profiler?.Measure(SimulationPhase.SpatialIndex, Agents.Count)) agentStore.Rebuild(Agents);
+        using (Profiler?.Measure(SimulationPhase.PredatorBehavior, predators.Count))
+        {
         foreach (var p in predators)
         {
-            var prey = agentStore.Nearest(p.Position, a => a.Energy > 0);
+            var prey = agentStore.Nearest(p.Position, a => a.Health > 0 && a.Energy > 0);
             p.Energy = Math.Max(0, p.Energy - dt * .025f);
             if (prey is null) continue;
             float distance = MathF.Sqrt(DistanceSquared(prey.Position, p.Position));
             if (distance > .5f) p.Position = Clamp(p.Position + new Vec2(prey.Position.X - p.Position.X, prey.Position.Y - p.Position.Y) * (Math.Min(distance, dt * 2.5f) / distance));
             if (DistanceSquared(prey.Position, p.Position) < 1)
             {
-                float damage = Math.Min(prey.Energy, dt * .35f);
-                prey.Energy -= damage;
-                if (prey.Energy <= 0 && damage > 0) prey.LethalCause = DeathCause.Predator;
+                float damage = Damage(prey, dt * .35f, DamageKind.Predator);
                 p.Energy = Math.Min(3, p.Energy + damage * .6f);
             }
         }
         predators.RemoveAll(p => p.Energy <= 0);
+        }
     }
     private static float DistanceSquared(Vec2 a, Vec2 b) { float dx = a.X - b.X, dy = a.Y - b.Y; return dx * dx + dy * dy; }
 }

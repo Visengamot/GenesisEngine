@@ -207,6 +207,8 @@ public sealed class Agent
     public Vec2 Position;
     public Genome Genome;
     public float Energy = 1;
+    /// <summary>Physical health [0,1]; eating restores energy, not wounds.</summary>
+    public float Health { get; internal set; } = 1;
     public float Age { get; internal set; }
     public int Generation { get; internal set; }
     public NeuralNetwork Brain { get; }
@@ -317,16 +319,28 @@ public sealed partial class Simulation
     {
         Guard.Delta(dt);
         if (dt == 0) return;
-        ValidateAgents();
-        SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
+        using var tickProfile = Profiler?.Measure(SimulationPhase.Tick, Agents.Count);
+        using (Profiler?.Measure(SimulationPhase.Validation, Agents.Count)) ValidateAgents();
+        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
+            SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
         Tick = checked(Tick + 1);
+        if (ExecuteCommands())
+        {
+            // Commands may spawn or erase entities after the initial reconciliation.
+            using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count)) SynchronizeEntities();
+        }
         foreach (var agent in Agents) agent.LethalCause = DeathCause.Other;
-        Food.Renew(dt, Terrain);
-        StepEnvironment(dt);
-        SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
+        using (Profiler?.Measure(SimulationPhase.Ecology, Environment.Width * Environment.Height))
+        {
+            Food.Renew(dt, Terrain);
+            StepEnvironment(dt);
+        }
+        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
+            SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
         Span<float> inputs = stackalloc float[Agent.SensorCount];
         Span<float> output = stackalloc float[2];
         Span<float> scratch = stackalloc float[Agent.SensorCount + 2 + 128];
+        using (Profiler?.Measure(SimulationPhase.LocalBehavior, Agents.Count))
         foreach (var agent in Agents)
         {
             // Preserve public list order (food competition and replay), but perform movement against
@@ -334,7 +348,7 @@ public sealed partial class Simulation
             var entity = entityByAgentId[agent.Id];
             ref var position = ref entities.Get<PositionComponent>(entity);
             ref var vitality = ref entities.Get<VitalityComponent>(entity);
-            if (vitality.Energy <= 0 || agent.Age >= MaximumAge) continue;
+            if (agent.Health <= 0 || vitality.Energy <= 0 || agent.Age >= MaximumAge) continue;
             var genome = entities.Get<GenomeComponent>(entity).Value;
             var brain = entities.Get<BrainComponent>(entity).Network;
             agent.Age += dt;
@@ -347,6 +361,9 @@ public sealed partial class Simulation
             var steering = new Vec2(output[0], output[1]);
             float persistence = Math.Clamp(1 - dt * 1.4f, 0, 1);
             var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
+            if (TryConstructionMotion(agent, dt, out var buildMotion)) motion = buildMotion;
+            else if (TryHaulMotion(agent, dt, out var haulMotion)) motion = haulMotion;
+            else if (TryMealMotion(agent, dt, out var mealMotion)) motion = mealMotion;
             float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
             if (length > 1) motion *= 1 / length;
             // Preserve the original terrain drag, but sweep the slowed motion through every intervening
@@ -368,26 +385,17 @@ public sealed partial class Simulation
             agent.Energy = vitality.Energy;
             if (agent.Energy <= 0) agent.LethalCause = DeathCause.EnergyDepletion;
         }
-        Agents.RemoveAll(agent =>
-        {
-            if (agent.Energy > 0 && agent.Age < MaximumAge) return false;
-            var m = Mortality;
-            // Age has priority even when exposure depleted energy in the same tick.
-            m = agent.Age >= MaximumAge ? m with { OldAge = m.OldAge + 1 }
-                : agent.LethalCause switch
-                {
-                    DeathCause.Fire => m with { Fire = m.Fire + 1 },
-                    DeathCause.Predator => m with { Predators = m.Predators + 1 },
-                    DeathCause.Climate => m with { Climate = m.Climate + 1 },
-                    DeathCause.EnergyDepletion => m with { EnergyDepletion = m.EnergyDepletion + 1 },
-                    _ => m with { Other = m.Other + 1 }
-                };
-            Mortality = m with { LifetimeDeaths = m.LifetimeDeaths + 1 };
-            return true;
-        });
-        Reproduce(dt);
-        StepCivilization(dt);
-        SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
+        using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count))
+            RemoveDeadAgents();
+        using (Profiler?.Measure(SimulationPhase.Hauling, haulJobs.Count)) StepHauling();
+        using (Profiler?.Measure(SimulationPhase.Reproduction, Agents.Count)) Reproduce(dt);
+        using (Profiler?.Measure(SimulationPhase.Civilization, Agents.Count)) StepCivilization(dt);
+        using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count)) RemoveDeadAgents();
+        using (Profiler?.Measure(SimulationPhase.Hauling, haulJobs.Count)) StepHauling(cleanupOnly: true);
+        using (Profiler?.Measure(SimulationPhase.Construction, constructionSites.Count)) StepConstruction(dt);
+        using (Profiler?.Measure(SimulationPhase.MealCleanup, mealJourneys.Count)) CleanMealJourneys();
+        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
+            SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }
 
     /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls or impassable terrain), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
@@ -447,14 +455,14 @@ public sealed partial class Simulation
                 entity = entities.Create();
                 entityByAgentId.Add(agent.Id, entity);
                 entities.Add(entity, new PositionComponent(agent.Position));
-                entities.Add(entity, new VitalityComponent(agent.Energy, agent.Energy));
+                entities.Add(entity, new VitalityComponent(Energy: agent.Energy, Health: agent.Health));
                 entities.Add(entity, new GenomeComponent(agent.Genome));
                 entities.Add(entity, new BrainComponent(agent.Brain));
             }
             else
             {
                 entities.Get<PositionComponent>(entity) = new(agent.Position);
-                entities.Get<VitalityComponent>(entity) = new(agent.Energy, agent.Energy);
+                entities.Get<VitalityComponent>(entity) = new(Energy: agent.Energy, Health: agent.Health);
                 entities.Get<GenomeComponent>(entity) = new(agent.Genome);
                 entities.Get<BrainComponent>(entity) = new(agent.Brain);
             }
@@ -473,11 +481,15 @@ public sealed partial class Simulation
             Guard.Position(agent.Heading, nameof(Agents));
             Guard.Finite(agent.Age, nameof(Agents));
             Guard.Finite(agent.Energy, nameof(Agents));
+            if (!float.IsFinite(agent.Health) || agent.Health < 0 || agent.Health > 1)
+                throw new ArgumentOutOfRangeException(nameof(Agents), "Invalid health.");
             agent.Genome.Validate();
             if (agent.Position != Clamp(agent.Position)) throw new ArgumentOutOfRangeException(nameof(Agents), "Agent is outside the map.");
             nextId = Math.Max(nextId, (long)agent.Id + 1);
         }
     }
+
+    private MatingNeighborhood? matingNeighborhood;
 
     private void Reproduce(float dt)
     {
@@ -486,18 +498,18 @@ public sealed partial class Simulation
         var sizes = Species.ToDictionary(s => s.Id, s => s.MemberCount);
         // Online fitness sharing prioritizes rare compatible groups when local mates/capacity are scarce.
         // This is steady-state ecological selection, not generations, species quotas or full NEAT.
-        var parents = Agents.Where(a => a.Age >= 5 && a.Energy >= 1.7f)
+        var parents = Agents.Where(a => a.Health > 0 && a.Age >= 5 && a.Energy >= 1.7f)
             .OrderByDescending(a => ReproductiveFitness(a) / sizes[a.SpeciesId])
             .ThenBy(a => a.Id).ToArray();
         var used = new HashSet<int>();
+        if (matingNeighborhood is null) matingNeighborhood = new(parents, Terrain.Width, Terrain.Height);
+        else matingNeighborhood.Rebuild(parents);
+        var neighborhood = matingNeighborhood;
         foreach (var parent in parents)
         {
             if (Agents.Count >= PopulationLimit || nextId > int.MaxValue) break;
             if (used.Contains(parent.Id)) continue;
-            bool Available(Agent a) => a.Id != parent.Id && !used.Contains(a.Id) &&
-                Math.Abs(a.Position.X - parent.Position.X) <= 3 && Math.Abs(a.Position.Y - parent.Position.Y) <= 3;
-            var mate = parents.FirstOrDefault(a => a.SpeciesId == parent.SpeciesId && Available(a));
-            if (mate is null && AllowInterspeciesMating) mate = parents.FirstOrDefault(Available);
+            var mate = neighborhood.Find(parent, used, AllowInterspeciesMating);
             if (mate is null) continue;
             // Territorial crowding reduces successful matings smoothly; it is not a soft population cap.
             // Competition for sites lowers birth success at high density, but never directly kills an agent.
@@ -521,6 +533,10 @@ public sealed partial class Simulation
             used.Add(parent.Id);
             used.Add(mate.Id);
             Agents.Add(child);
+            // Membership is cultural, not a sociality gene: a newborn continues its family settlement.
+            var family = tribes.FirstOrDefault(t => t.MemberIds.Contains(parent.Id))
+                ?? tribes.FirstOrDefault(t => t.MemberIds.Contains(mate.Id));
+            family?.MemberIds.Add(child.Id);
         }
         RefreshSpecies();
     }

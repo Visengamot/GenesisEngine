@@ -47,24 +47,30 @@ internal static class Game
         Raylib.SetTextureFilter(font.Texture, TextureFilter.Bilinear);
         var benchmark = !naturalMode && benchmarkMode ? new RenderBenchmark() : null;
         var simulation = naturalSimulation ?? benchmark?.CreateSimulation() ?? new Simulation();
+        var smokeAgentPanel = !benchmarkMode && args.Contains("--smoke-agent-panel");
         var tool = GodTool.Inspect;
         var radius = 4f;
-        var paused = false;
+        var paused = smokeAgentPanel;
         var speed = 1;
         var accumulator = 0f;
         var zoom = 1f;
         var pan = Vector2.Zero;
         var mapDrag = new MapInteractionController();
-        var selectedId = -1;
+        var selectedId = smokeAgentPanel ? simulation.Agents[0].Id : -1;
         var showTerritories = false;
         var showCivilizationPanel = false;
         var selectedTribeId = -1;
         var editingLimit = false;
         var limitInput = "";
         var notice = "Мир развивается сам. Вы меняете условия жизни.";
-        var smoke = !benchmarkMode && args.Contains("--smoke");
+        var smoke = !benchmarkMode && (args.Contains("--smoke") || smokeAgentPanel);
         var frames = 0;
         var savePath = Path.Combine(AppContext.BaseDirectory, "Saves", "world.json");
+        void QueueUiCommand(WorldCommand command)
+        {
+            try { simulation.QueueCommand(command); }
+            catch (InvalidOperationException) { notice = "Очередь команд заполнена. Продолжите симуляцию."; }
+        }
         try
         {
             while (!Raylib.WindowShouldClose())
@@ -75,7 +81,8 @@ internal static class Game
                 var mapArea = new Rectangle(Sidebar, Top, width - Sidebar, height - Top - Bottom);
                 var mouse = Raylib.GetMousePosition();
                 var elapsed = Math.Clamp(Raylib.GetFrameTime(), 0, .1f);
-                bool onMap = Raylib.CheckCollisionPointRec(mouse, mapArea);
+                bool onMap = Raylib.CheckCollisionPointRec(mouse, mapArea)
+                    && (selectedId < 0 || !Raylib.CheckCollisionPointRec(mouse, AgentDetailsPanel.Bounds(width, height, Sidebar, Top)));
                 float baseCell = Math.Min(mapArea.Width / simulation.Terrain.Width, mapArea.Height / simulation.Terrain.Height);
                 float cell = baseCell * zoom;
                 Vector2 MapOrigin() => new(mapArea.X + (mapArea.Width - simulation.Terrain.Width * cell) / 2 + pan.X,
@@ -99,7 +106,7 @@ internal static class Game
                         if (Raylib.IsKeyPressed(KeyboardKey.Enter))
                         {
                             if (int.TryParse(limitInput, out int requested) && requested >= Simulation.MinimumPopulationLimit && requested <= Simulation.AbsoluteMaximumPopulation)
-                            { simulation.SetPopulationLimit(requested); notice = $"Лимит жителей: {requested}"; editingLimit = false; }
+                            { QueueUiCommand(new(simulation.Tick + 1, 0, "ui", WorldCommandKind.PopulationLimit, Limit: requested)); notice = $"Лимит {requested} применится на следующем тике"; editingLimit = false; }
                             else notice = $"Допустимый лимит: {Simulation.MinimumPopulationLimit}–{Simulation.AbsoluteMaximumPopulation}";
                         }
                     }
@@ -137,8 +144,8 @@ internal static class Game
                     }
                     else if (gesture.Click || (gesture.Paint && brush))
                     {
-                        simulation.ApplyTool(tool, point, radius,
-                            tool is GodTool.People or GodTool.Predator ? 1 : gesture.Paint ? elapsed * 2 : .15f);
+                        QueueUiCommand(new(simulation.Tick + 1, 0, "ui", WorldCommandKind.Tool, tool, point, radius,
+                            tool is GodTool.People or GodTool.Predator ? 1 : gesture.Paint ? elapsed * 2 : .15f));
                         WorldRenderer.InvalidateTerrain();
                     }
                 }
@@ -148,7 +155,10 @@ internal static class Game
                 else if (!paused)
                 {
                     accumulator += elapsed * speed;
-                    while (accumulator >= 1f / 30) { simulation.Step(1f / 30); accumulator -= 1f / 30; }
+                    // Keep debt rather than skipping world decisions. Overload slows simulation explicitly.
+                    int substeps = 0;
+                    while (accumulator >= 1f / 30 && substeps < 8)
+                    { simulation.Step(1f / 30); accumulator -= 1f / 30; substeps++; }
                 }
                 benchmark?.EndStep();
                 natural?.EndStep();
@@ -170,9 +180,10 @@ internal static class Game
                 Text("ЛАБОРАТОРИЯ ЖИВОГО МИРА", 23, 43, 12, Muted);
                 Text($"Жители  {simulation.Agents.Count}/{simulation.PopulationLimit}     Племена  {simulation.Tribes.Count}     Поколение  {(simulation.Agents.Count == 0 ? 0 : simulation.Agents.Max(a => a.Generation))}", 322, 14, 19, Ink);
                 Text($"Время  {simulation.Tick / 30f:0} с    •    {speed}×    •    Видов {simulation.SpeciesCount}    •    {(paused ? "Пауза" : "Жизнь продолжается")}", 322, 42, 16, Muted);
-                if (Button(new(width - 244, 20, 102, 34), paused ? "Продолжить" : "Пауза", paused)) paused = !paused;
+                if (Button(new Rectangle(width - 244, 20, 102, 34), paused ? "Продолжить" : "Пауза", paused)) paused = !paused;
                 if (Button(new(width - 130, 20, 108, 34), $"Скорость {speed}×", false)) speed = speed == 4 ? 1 : speed * 2;
                 Raylib.DrawRectangle(0, Top, Sidebar, height - Top, new Color(25, 35, 40, 255));
+                Raylib.BeginScissorMode(0, Top, Sidebar, height - Top - Bottom);
                 Text("ИНСТРУМЕНТЫ ТВОРЦА", 20, 94, 16, Ink);
                 for (int i = 0; i < Tools.Length; i++)
                 {
@@ -193,6 +204,7 @@ internal static class Game
                 if (Button(civilizationButton, showCivilizationPanel ? "Цивилизации: скрыть" : "Цивилизации: открыть", showCivilizationPanel))
                     showCivilizationPanel = !showCivilizationPanel;
                 var selected = simulation.Agents.FirstOrDefault(a => a.Id == selectedId);
+                if (selected is null) selectedId = -1;
                 if (showCivilizationPanel)
                 {
                     var tribes = simulation.Tribes.OrderBy(t => t.Id).ToArray();
@@ -203,9 +215,11 @@ internal static class Game
                         selectedTribeId = selectedTribe.Id;
                         if (Button(new Rectangle(16, 639, 268, 29), $"Племя {selectedTribe.Id} • {PhaseName(selectedTribe.Phase)}  ›", false))
                             selectedTribeId = tribes[(Array.IndexOf(tribes, selectedTribe) + 1) % tribes.Length].Id;
-                        Text($"Жители {selectedTribe.MemberIds.Count} Еда {selectedTribe.Food:0.0} Дерево {selectedTribe.Wood:0.0}", 20, 671, 11, Muted);
+                        Text($"Жители {selectedTribe.MemberIds.Count} · мест {simulation.HousingCapacity(selectedTribe.Id)} · еда {selectedTribe.Food:0.0}", 20, 671, 11, Muted);
                         Text($"Камень {selectedTribe.Stone:0.0} · опыт: еда {selectedTribe.FoodKnowledge:0.0} лес {selectedTribe.WoodKnowledge:0.0} камень {selectedTribe.StoneKnowledge:0.0}", 20, 686, 9, Muted);
-                        Text("Ветки: ✓ освоено / % изучено / — закрыто", 20, 700, 10, Ink);
+                        var need = simulation.MostNeededResource(selectedTribe);
+                        string needName = need == HaulResource.Food ? "пища" : need == HaulResource.Wood ? "дерево" : "камень";
+                        Text($"Приоритет: {needName} · сборщиков {simulation.HaulJobs.Count(j => j.TribeId == selectedTribe.Id)}", 20, 700, 10, Ink);
                         int techY = 715;
                         foreach (var research in selectedTribe.Research)
                         {
@@ -216,15 +230,7 @@ internal static class Game
                     }
                 }
                 else if (selected != null)
-                {
-                    Text($"Житель №{selected.Id} · Вид {selected.SpeciesId}", 20, 608, 16, Ink);
-                    Text($"Возраст {selected.Age:0} с   Поколение {selected.Generation}", 20, 633, 13, Muted);
-                    Text($"Энергия {selected.Energy:0.00} / 3", 20, 653, 14, Ink);
-                    Text($"Скорость {selected.Genome.Speed:0.00}   Зрение {selected.Genome.Vision:0.0}", 20, 674, 13, Muted);
-                    Text($"Общительность {selected.Genome.Sociality:0.00}", 20, 695, 13, Muted);
-                    Text($"Агрессия {selected.Genome.Aggression:0.00}", 20, 716, 13, Muted);
-                    Text($"Мозг: {selected.Brain.HiddenNodeCount} узлов / {selected.Brain.ConnectionCount} связей", 20, 737, 12, Muted);
-                }
+                    Text($"Выбран житель №{selected.Id}. Подробности — справа.", 20, 651, 12, Muted);
                 else
                 {
                     Text("ЛЕТОПИСЬ МИРА", 20, 610, 16, Ink);
@@ -240,11 +246,17 @@ internal static class Game
                 int mortalityY = height - 135;
                 Text($"Умерли {mortality.LifetimeDeaths} · возраст {mortality.OldAge} · голод {mortality.EnergyDepletion}", 20, mortalityY, 11, Ink);
                 Text($"Огонь {mortality.Fire} · хищники {mortality.Predators} · климат {mortality.Climate}", 20, mortalityY + 18, 11, Muted);
-                Text($"Прочие причины: {mortality.Other}", 20, mortalityY + 35, 11, Muted);
+                Text($"Доставки {simulation.HaulJobs.Count} · стройки {simulation.ConstructionSites.Count} · к еде {simulation.MealJourneys.Count}", 20, mortalityY + 35, 10, Muted);
                 Text("F5 — сохранить   F9 — загрузить", 20, height - 90, 13, Ink);
                 Text("R — новый мир   Home — вид целиком", 20, height - 70, 12, Muted);
+                Raylib.EndScissorMode();
+                if (selected != null && AgentDetailsPanel.Draw(simulation, selected, width, height, Sidebar, Top, font))
+                    selectedId = -1;
                 Raylib.DrawRectangle(Sidebar, height - Bottom, width - Sidebar, Bottom, new Color(22, 31, 36, 255));
-                Text(notice.Length > 110 ? notice[..110] + "..." : notice, Sidebar + 16, height - 29, 14, Muted);
+                string status = accumulator >= 1f / 30
+                    ? $"Отставание симуляции: {accumulator:0.00} с · команд: {simulation.PendingCommands.Count}"
+                    : $"{notice} · очередь: {simulation.PendingCommands.Count}";
+                Text(status.Length > 110 ? status[..110] + "..." : status, Sidebar + 16, height - 29, 14, Muted);
                 benchmark?.BeginPresent();
                 natural?.BeginPresent();
                 Raylib.EndDrawing();
@@ -256,7 +268,7 @@ internal static class Game
                 }
                 if (smoke && ++frames >= 120)
                 {
-                    Raylib.TakeScreenshot("genesis-preview.png");
+                    Raylib.TakeScreenshot(smokeAgentPanel ? "genesis-agent-panel.png" : "genesis-preview.png");
                     break;
                 }
             }
