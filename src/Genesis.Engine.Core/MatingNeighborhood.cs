@@ -3,16 +3,23 @@ namespace Genesis.Engine.Core;
 /// <summary>Tick-local broad phase. Input rank, not bucket order, decides the mate.</summary>
 internal sealed class MatingNeighborhood
 {
-    private readonly Agent[] parents;
-    private readonly int[] heads, next;
+    private Agent[] parents = [];
+    private readonly int[] heads;
+    private int[] next = [];
     private readonly int columns, rows;
 
     internal MatingNeighborhood(Agent[] rankedParents, int width, int height)
     {
-        parents = rankedParents;
         columns = (width + 2) / 3; rows = (height + 2) / 3;
-        heads = new int[columns * rows]; Array.Fill(heads, -1);
-        next = new int[parents.Length];
+        heads = new int[columns * rows];
+        Rebuild(rankedParents);
+    }
+
+    internal void Rebuild(Agent[] rankedParents)
+    {
+        parents = rankedParents;
+        Array.Fill(heads, -1);
+        if (next.Length < parents.Length) Array.Resize(ref next, Math.Max(parents.Length, next.Length * 2));
         for (int rank = 0; rank < parents.Length; rank++)
         {
             var p = parents[rank].Position;

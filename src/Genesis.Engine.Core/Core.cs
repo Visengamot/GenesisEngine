@@ -489,6 +489,8 @@ public sealed partial class Simulation
         }
     }
 
+    private MatingNeighborhood? matingNeighborhood;
+
     private void Reproduce(float dt)
     {
         RefreshSpecies();
@@ -500,7 +502,9 @@ public sealed partial class Simulation
             .OrderByDescending(a => ReproductiveFitness(a) / sizes[a.SpeciesId])
             .ThenBy(a => a.Id).ToArray();
         var used = new HashSet<int>();
-        var neighborhood = new MatingNeighborhood(parents, Terrain.Width, Terrain.Height);
+        if (matingNeighborhood is null) matingNeighborhood = new(parents, Terrain.Width, Terrain.Height);
+        else matingNeighborhood.Rebuild(parents);
+        var neighborhood = matingNeighborhood;
         foreach (var parent in parents)
         {
             if (Agents.Count >= PopulationLimit || nextId > int.MaxValue) break;
