@@ -93,7 +93,9 @@ public sealed partial class Simulation
     };
 
     /// <summary>Stock deficits include committed loads; stable resource order breaks equal scores.</summary>
-    public HaulResource MostNeededResource(Tribe tribe)
+    public HaulResource MostNeededResource(Tribe tribe) => ResourcePriorities(tribe)[0];
+
+    private HaulResource[] ResourcePriorities(Tribe tribe)
     {
         ArgumentNullException.ThrowIfNull(tribe);
         float Incoming(HaulResource resource) => haulJobs.Where(j => j.TribeId == tribe.Id && j.Resource == resource)
@@ -105,7 +107,7 @@ public sealed partial class Simulation
             (Resource: HaulResource.Wood, Score: (2 - tribe.Wood - Incoming(HaulResource.Wood)) / 2),
             (Resource: HaulResource.Stone, Score: (2 - tribe.Stone - Incoming(HaulResource.Stone)) / 2)
         };
-        return needs.OrderByDescending(n => n.Score).ThenBy(n => n.Resource).First().Resource;
+        return needs.OrderByDescending(n => n.Score).ThenBy(n => n.Resource).Select(n => n.Resource).ToArray();
     }
 
     private void AssignHauler(Tribe tribe, Agent[] members, Structure home)
@@ -116,7 +118,9 @@ public sealed partial class Simulation
         var worker = members.Where(a => a.Health > 0 && a.Energy > .8f && !haulJobs.Any(j => j.WorkerId == a.Id) && !constructionSites.Any(s => s.WorkerId == a.Id))
             .OrderBy(a => DistanceSquared(a.Position, home.Position)).ThenBy(a => a.Id).FirstOrDefault();
         if (worker is null) return;
-        var resource = MostNeededResource(tribe);
+        int searchBudget = 2048;
+        foreach (var resource in ResourcePriorities(tribe))
+        {
         // Bounded local candidates, not a full-world scan or per-agent global optimizer.
         var candidates = new List<Vec2>();
         for (int dy = -6; dy <= 6; dy++)
@@ -130,7 +134,9 @@ public sealed partial class Simulation
             }
         foreach (var source in candidates.OrderBy(p => DistanceSquared(worker.Position, p)).ThenBy(p => p.Y).ThenBy(p => p.X).Take(4))
         {
-            var path = GridPathfinder.Search(Terrain, worker.Position, source, (x,y) => !HaulPassable(x,y), 512);
+            if (searchBudget <= 0) return;
+            var path = GridPathfinder.Search(Terrain, worker.Position, source, (x,y) => !HaulPassable(x,y), Math.Min(512, searchBudget));
+            searchBudget -= path.ExpandedNodes;
             if (path.Status != PathSearchStatus.Found)
             {
                 // Worker reachability is not globally transferable; only remember a proven bad source after a commitment expires.
@@ -140,6 +146,7 @@ public sealed partial class Simulation
                 Source = source, Home = home.Position, Route = path.Path.ToArray(), Stage = HaulStage.Outbound,
                 DeadlineTick = Tick + 1800 });
             return;
+        }
         }
     }
 
