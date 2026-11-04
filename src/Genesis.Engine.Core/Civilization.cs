@@ -92,7 +92,9 @@ public sealed partial class Simulation
             // Once built, a settlement stays at its hut rather than following wandering citizens.
             var home = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
             t.Center = home?.Position ?? t.Center;
-            foreach (var a in members)
+            if (home is not null) AssignHauler(t, members, home);
+            // Bootstrap gathering remains only until the first physical home exists.
+            foreach (var a in home is null ? members : Array.Empty<Agent>())
             {
                 int x = (int)a.Position.X, y = (int)a.Position.Y;
                 var c = Environment.Get(x, y);
