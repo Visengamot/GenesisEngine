@@ -500,21 +500,12 @@ public sealed partial class Simulation
             .OrderByDescending(a => ReproductiveFitness(a) / sizes[a.SpeciesId])
             .ThenBy(a => a.Id).ToArray();
         var used = new HashSet<int>();
+        var neighborhood = new MatingNeighborhood(parents, Terrain.Width, Terrain.Height);
         foreach (var parent in parents)
         {
             if (Agents.Count >= PopulationLimit || nextId > int.MaxValue) break;
             if (used.Contains(parent.Id)) continue;
-            Agent? mate = null, fallback = null;
-            foreach (var candidate in parents)
-            {
-                // Preserve fitness/ID order and same-species priority, without per-parent closures.
-                if (candidate.SpeciesId != parent.SpeciesId && (!AllowInterspeciesMating || fallback is not null)) continue;
-                if (candidate.Id == parent.Id || used.Contains(candidate.Id) ||
-                    Math.Abs(candidate.Position.X - parent.Position.X) > 3 || Math.Abs(candidate.Position.Y - parent.Position.Y) > 3) continue;
-                if (candidate.SpeciesId == parent.SpeciesId) { mate = candidate; break; }
-                fallback = candidate;
-            }
-            mate ??= fallback;
+            var mate = neighborhood.Find(parent, used, AllowInterspeciesMating);
             if (mate is null) continue;
             // Territorial crowding reduces successful matings smoothly; it is not a soft population cap.
             // Competition for sites lowers birth success at high density, but never directly kills an agent.
