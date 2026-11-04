@@ -215,7 +215,7 @@ internal static class Game
                         selectedTribeId = selectedTribe.Id;
                         if (Button(new Rectangle(16, 639, 268, 29), $"Племя {selectedTribe.Id} • {PhaseName(selectedTribe.Phase)}  ›", false))
                             selectedTribeId = tribes[(Array.IndexOf(tribes, selectedTribe) + 1) % tribes.Length].Id;
-                        Text($"Жители {selectedTribe.MemberIds.Count} Еда {selectedTribe.Food:0.0} Дерево {selectedTribe.Wood:0.0}", 20, 671, 11, Muted);
+                        Text($"Жители {selectedTribe.MemberIds.Count} · мест {simulation.HousingCapacity(selectedTribe.Id)} · еда {selectedTribe.Food:0.0}", 20, 671, 11, Muted);
                         Text($"Камень {selectedTribe.Stone:0.0} · опыт: еда {selectedTribe.FoodKnowledge:0.0} лес {selectedTribe.WoodKnowledge:0.0} камень {selectedTribe.StoneKnowledge:0.0}", 20, 686, 9, Muted);
                         var need = simulation.MostNeededResource(selectedTribe);
                         string needName = need == HaulResource.Food ? "пища" : need == HaulResource.Wood ? "дерево" : "камень";

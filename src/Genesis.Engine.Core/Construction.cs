@@ -113,7 +113,7 @@ public sealed partial class Simulation
         foreach (var s in save.ConstructionSites)
         {
             if (s is null || (s.Kind is not (StructureKind.Hut or StructureKind.Farm)) || !tribes.Any(t=>t.Id==s.TribeId) ||
-                !occupied.Add(s.Position) || !kinds.Add((s.TribeId,s.Kind)) || structures.Any(b=>b.TribeId==s.TribeId&&b.Kind==s.Kind) ||
+                !occupied.Add(s.Position) || !kinds.Add((s.TribeId,s.Kind)) || structures.Count(b=>b.TribeId==s.TribeId&&b.Kind==s.Kind) >= (s.Kind==StructureKind.Hut && save.Version>=16 ? 8 : 1) ||
                 !float.IsFinite(s.Labor) || s.Labor < 0 || s.Labor >= s.RequiredLabor ||
                 !float.IsFinite(s.PaidWood) || s.PaidWood != (s.Kind==StructureKind.Hut?.6f:.5f) ||
                 !float.IsFinite(s.PaidStone) || s.PaidStone != (s.Kind==StructureKind.Hut?.2f:.1f) ||

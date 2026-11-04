@@ -167,11 +167,16 @@ public sealed partial class Simulation
         }
     }
 
+    public const int ResidentsPerHut = 8;
+    public int HousingCapacity(int tribeId) => structures.Count(s => s.TribeId == tribeId && s.Kind == StructureKind.Hut) * ResidentsPerHut;
+
     private void Build(Tribe t, StructureKind kind, float wood, float stone, bool enabled)
     {
-        if (!enabled || structures.Any(s => s.TribeId == t.Id && s.Kind == kind) || constructionSites.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
+        int desired = kind == StructureKind.Hut ? Math.Clamp((t.MemberIds.Count + ResidentsPerHut - 1) / ResidentsPerHut, 1, 8) : 1;
+        int existing = structures.Count(s => s.TribeId == t.Id && s.Kind == kind);
+        if (!enabled || existing >= desired || constructionSites.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
         Vec2? site = null;
-        int searchRadius = kind == StructureKind.Farm ? 5 : 2;
+        int searchRadius = kind == StructureKind.Farm ? 5 : Math.Min(5, 2 + existing);
         for (int dy = -searchRadius; dy <= searchRadius && site is null; dy++)
             for (int dx = -searchRadius; dx <= searchRadius && site is null; dx++)
             {
