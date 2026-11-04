@@ -25,6 +25,17 @@ public sealed partial class Simulation
 {
     private readonly List<ConstructionSite> constructionSites = new();
     public IReadOnlyList<ConstructionSite> ConstructionSites => constructionSites.AsReadOnly();
+    public float LostConstructionWood { get; private set; }
+    public float LostConstructionStone { get; private set; }
+
+    private void AbandonConstruction(int index, string reason)
+    {
+        var site = constructionSites[index];
+        LostConstructionWood += site.PaidWood;
+        LostConstructionStone += site.PaidStone;
+        constructionSites.RemoveAt(index);
+        RecordEvent($"Племя {site.TribeId}: стройка потеряна ({reason}), дерево {site.PaidWood:0.00}, камень {site.PaidStone:0.00}.");
+    }
 
     private bool TryConstructionMotion(Agent worker, float dt, out Vec2 motion)
     {
@@ -51,7 +62,7 @@ public sealed partial class Simulation
         {
             var site = constructionSites[i];
             var tribe = tribes.FirstOrDefault(t => t.Id == site.TribeId);
-            if (tribe is null) { constructionSites.RemoveAt(i); continue; } // Invested materials are abandoned.
+            if (tribe is null) { AbandonConstruction(i, "нет жителей"); continue; }
             if (site.WorkerId is not null && Tick >= site.AssignmentDeadlineTick)
             {
                 var former = Agents.FirstOrDefault(a => a.Id == site.WorkerId);
@@ -121,6 +132,14 @@ public sealed partial class Simulation
     private void RestoreConstruction(WorldSave save)
     {
         if (save.Version < 13) return;
+        if (save.Version >= 19)
+        {
+            if (!float.IsFinite(save.LostConstructionWood) || save.LostConstructionWood < 0 ||
+                !float.IsFinite(save.LostConstructionStone) || save.LostConstructionStone < 0)
+                throw new ArgumentException("Invalid construction losses.");
+            LostConstructionWood = save.LostConstructionWood;
+            LostConstructionStone = save.LostConstructionStone;
+        }
         if (save.ConstructionSites is null || save.ConstructionSites.Length > 64 || save.ConstructionSites.Length+structures.Count > 128)
             throw new ArgumentException("Invalid construction count.");
         var occupied = structures.Select(s=>s.Position).ToHashSet();
