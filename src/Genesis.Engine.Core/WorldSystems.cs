@@ -118,9 +118,15 @@ public sealed partial class Simulation
                 float adjacent = NeighborFire(x - 1, y) + NeighborFire(x + 1, y) + NeighborFire(x, y - 1) + NeighborFire(x, y + 1);
                 float fire = c.Fire + dt * (adjacent * .12f * c.Wood * (1 - c.Moisture) + c.Fire * c.Wood * (1 - c.Moisture) * .3f - c.Fire * (.2f + c.Moisture));
                 if (c.Wood < .01f) fire -= .5f * dt;
+                // Replenishment balances evaporation at the terrain's normal climate.
+                // Previously even 22 C lost .0014 moisture/second forever: every plain became desert.
+                float elevation = Terrain.Get(x, y);
+                float normalTemperature = 22 - elevation * 8;
+                float normalMoisture = Math.Clamp(.65f - elevation * .25f, 0, 1);
+                float excessHeat = Math.Max(0, c.Temperature - normalTemperature);
                 c = c with
                 {
-                    Moisture = c.Moisture + dt * (.003f - Math.Max(0, c.Temperature) * .0002f - c.Fire * .04f),
+                    Moisture = c.Moisture + dt * ((normalMoisture - c.Moisture) * .01f - excessHeat * .0002f - c.Fire * .04f),
                     Temperature = c.Temperature + dt * ((22 - Terrain.Get(x, y) * 8 - c.Temperature) * .01f + c.Fire * 4),
                     Vegetation = c.Vegetation + dt * fertility * .015f - burning * .4f,
                     Wood = c.Wood + dt * fertility * .005f - burning * .3f,
