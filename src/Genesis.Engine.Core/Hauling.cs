@@ -115,10 +115,18 @@ public sealed partial class Simulation
         // At most one new assignment per decision, up to four workers / a quarter of citizens.
         int workerBudget = Math.Clamp(members.Length / 4, 1, 4);
         if (haulJobs.Count >= 128 || haulJobs.Count(j => j.TribeId == tribe.Id) >= workerBudget) return;
-        var worker = members.Where(a => a.Health > 0 && a.Energy > .8f && !haulJobs.Any(j => j.WorkerId == a.Id) && !constructionSites.Any(s => s.WorkerId == a.Id))
-            .OrderBy(a => DistanceSquared(a.Position, home.Position)).ThenBy(a => a.Id).FirstOrDefault();
-        if (worker is null) return;
+        var workers = members.Where(a => a.Health > 0 && a.Energy > .8f && !haulJobs.Any(j => j.WorkerId == a.Id) && !constructionSites.Any(s => s.WorkerId == a.Id))
+            .OrderBy(a => DistanceSquared(a.Position, home.Position)).ThenBy(a => a.Id).Take(4).ToArray();
+        if (workers.Length == 0) return;
         int searchBudget = 2048;
+        var reachableWorkers = new List<Agent>();
+        foreach (var worker in workers)
+        {
+            if (searchBudget <= 0) return;
+            var homePath = GridPathfinder.Search(Terrain, worker.Position, home.Position, (x,y) => !HaulPassable(x,y), Math.Min(512, searchBudget));
+            searchBudget -= homePath.ExpandedNodes;
+            if (homePath.Status == PathSearchStatus.Found) reachableWorkers.Add(worker);
+        }
         foreach (var resource in ResourcePriorities(tribe))
         {
         // Bounded local candidates, not a full-world scan or per-agent global optimizer.
@@ -132,6 +140,8 @@ public sealed partial class Simulation
                     haulSourceFailures.Any(f => f.TribeId == tribe.Id && f.Resource == resource && f.Source == p && f.UntilTick > Tick)) continue;
                 candidates.Add(p);
             }
+        foreach (var worker in reachableWorkers)
+        {
         foreach (var source in candidates.OrderBy(p => DistanceSquared(worker.Position, p)).ThenBy(p => p.Y).ThenBy(p => p.X).Take(4))
         {
             if (searchBudget <= 0) return;
@@ -146,6 +156,7 @@ public sealed partial class Simulation
                 Source = source, Home = home.Position, Route = path.Path.ToArray(), Stage = HaulStage.Outbound,
                 DeadlineTick = Tick + 1800 });
             return;
+        }
         }
         }
     }
