@@ -8,6 +8,10 @@ public sealed class ConstructionSite
     public float PaidWood { get; set; }
     public float PaidStone { get; set; }
     public float Labor { get; set; }
+    public bool MaterialsDelivered { get; set; } = true;
+    public Vec2 MaterialPosition { get; set; }
+    public bool MaterialsInTransit { get; set; }
+    public Vec2 Destination => MaterialsDelivered || MaterialsInTransit ? Position : MaterialPosition;
     public int? WorkerId { get; set; }
     public Vec2[] Route { get; set; } = [];
     public int Waypoint { get; set; }
@@ -48,6 +52,13 @@ public sealed partial class Simulation
             var worker = Agents.FirstOrDefault(a => a.Id == site.WorkerId && a.Health > 0 && a.Energy >= .35f && tribe.MemberIds.Contains(a.Id));
             if (worker is null)
             {
+                if (site.MaterialsInTransit)
+                {
+                    // Drop the paid bundle where the former carrier last stood; replacement must recover it.
+                    var former = Agents.FirstOrDefault(a => a.Id == site.WorkerId);
+                    if (former is not null) site.MaterialPosition = new((int)former.Position.X, (int)former.Position.Y);
+                    site.MaterialsInTransit = false;
+                }
                 site.WorkerId = null; site.Route = []; site.Waypoint = 0;
                 if (Tick < site.RetryTick) continue;
                 worker = Agents.Where(a => tribe.MemberIds.Contains(a.Id) && a.Health > 0 && a.Energy > .8f &&
@@ -59,15 +70,27 @@ public sealed partial class Simulation
             if (site.BlockReason.Length > 0)
             {
                 if (Tick < site.RetryTick) continue;
-                var path = GridPathfinder.Search(Terrain, worker.Position, site.Position, (x,y)=>!HaulPassable(x,y), 512);
+                var path = GridPathfinder.Search(Terrain, worker.Position, site.Destination, (x,y)=>!HaulPassable(x,y), 512);
                 if (path.Status != PathSearchStatus.Found)
                 {
+                    if (site.MaterialsInTransit)
+                    { site.MaterialPosition = new((int)worker.Position.X, (int)worker.Position.Y); site.MaterialsInTransit = false; }
+                    site.Route = []; site.Waypoint = 0;
                     site.WorkerId = null; site.BlockReason = path.Status.ToString(); site.RetryTick = Tick+90;
                     continue;
                 }
                 site.Route = path.Path.ToArray(); site.Waypoint = 0; site.BlockReason = "";
             }
-            if (DistanceSquared(worker.Position, site.Position) >= .16f) continue;
+            if (site.MaterialsInTransit) site.MaterialPosition = new((int)worker.Position.X, (int)worker.Position.Y);
+            if (DistanceSquared(worker.Position, site.Destination) >= .16f) continue;
+            if (!site.MaterialsDelivered)
+            {
+                if (site.MaterialsInTransit)
+                { site.MaterialsDelivered = true; site.MaterialsInTransit = false; }
+                else site.MaterialsInTransit = true;
+                site.Route = []; site.Waypoint = 0; site.BlockReason = "route-needed"; site.RetryTick = Tick;
+                continue;
+            }
             if (!HaulPassable((int)site.Position.X,(int)site.Position.Y))
             { site.BlockReason = "site-blocked"; site.RetryTick = Tick+30; continue; }
             site.Labor = Math.Min(site.RequiredLabor, site.Labor+dt);
@@ -98,11 +121,13 @@ public sealed partial class Simulation
                 s.BlockReason is null || s.BlockReason.Length>64 ||
                 (s.WorkerId is int id && (!workers.Add(id)||!Agents.Any(a=>a.Id==id)||!tribes.Any(t=>t.Id==s.TribeId&&t.MemberIds.Contains(id)))))
                 throw new ArgumentException("Invalid construction site.");
-            foreach(var p in s.Route.Append(s.Position))
+            if (save.Version >= 15 && ((s.MaterialsDelivered && s.MaterialsInTransit) || (s.MaterialsInTransit && s.WorkerId is null) ||
+                (!s.MaterialsDelivered && s.Labor > 0))) throw new ArgumentException("Invalid construction material state.");
+            foreach(var p in s.Route.Append(s.Position).Append(s.MaterialPosition))
             { Guard.Position(p,nameof(save)); if(p!=Clamp(p)||p.X!=(int)p.X||p.Y!=(int)p.Y)throw new ArgumentException("Invalid construction route."); }
             for(int i=1;i<s.Route.Length;i++)
                 if(Math.Abs(s.Route[i].X-s.Route[i-1].X)+Math.Abs(s.Route[i].Y-s.Route[i-1].Y)!=1)throw new ArgumentException("Invalid construction adjacency.");
-            if(s.Route.Length>0&&s.Route[^1]!=s.Position)throw new ArgumentException("Wrong construction destination.");
+            if(s.Route.Length>0&&s.Route[^1]!=s.Destination)throw new ArgumentException("Wrong construction destination.");
             constructionSites.Add(s);
         }
     }

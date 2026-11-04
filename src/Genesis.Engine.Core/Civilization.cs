@@ -189,8 +189,10 @@ public sealed partial class Simulation
             structures.RemoveAt(road);
         }
         t.Wood -= wood; t.Stone -= stone;
+        var warehouse = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
         constructionSites.Add(new() { Kind = kind, Position = site.Value, TribeId = t.Id,
-            PaidWood = wood, PaidStone = stone, BlockReason = "no-worker" });
+            PaidWood = wood, PaidStone = stone, BlockReason = "no-worker",
+            MaterialsDelivered = warehouse is null, MaterialPosition = warehouse?.Position ?? site.Value });
         string name = kind == StructureKind.Hut ? "хижину" : kind == StructureKind.Farm ? "ферму" : "дорогу";
         RecordEvent($"Племя {t.Id} начало строить {name}.");
     }
