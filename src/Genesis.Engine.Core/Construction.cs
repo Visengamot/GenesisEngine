@@ -92,11 +92,19 @@ public sealed partial class Simulation
                 }
                 site.WorkerId = null; site.Route = []; site.Waypoint = 0; site.AssignmentDeadlineTick = 0;
                 if (Tick < site.RetryTick) continue;
-                worker = Agents.Where(a => tribe.MemberIds.Contains(a.Id) && a.Health > 0 && a.Energy > .8f &&
+                var candidates = Agents.Where(a => tribe.MemberIds.Contains(a.Id) && a.Health > 0 && a.Energy > .8f &&
                     !haulJobs.Any(j => j.WorkerId == a.Id) && !constructionSites.Any(s => s.WorkerId == a.Id))
-                    .OrderBy(a => DistanceSquared(a.Position, site.Position)).ThenBy(a => a.Id).FirstOrDefault();
-                if (worker is null) { site.BlockReason = "no-worker"; site.RetryTick = Tick+30; continue; }
-                site.WorkerId = worker.Id; site.AssignmentDeadlineTick = Tick + 1800; site.BlockReason = "route-needed";
+                    .OrderBy(a => DistanceSquared(a.Position, site.Destination)).ThenBy(a => a.Id).Take(4).ToArray();
+                string reason = "no-worker";
+                foreach (var candidate in candidates)
+                {
+                    var path = GridPathfinder.Search(Terrain, candidate.Position, site.Destination, (x,y)=>!HaulPassable(x,y), 512);
+                    if (path.Status != PathSearchStatus.Found) { reason = path.Status.ToString(); continue; }
+                    worker = candidate; site.Route = path.Path.ToArray(); site.Waypoint = 0;
+                    break;
+                }
+                if (worker is null) { site.BlockReason = reason; site.RetryTick = Tick+90; continue; }
+                site.WorkerId = worker.Id; site.AssignmentDeadlineTick = Tick + 1800; site.BlockReason = "";
             }
             if (site.BlockReason.Length > 0)
             {
