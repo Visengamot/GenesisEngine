@@ -28,20 +28,25 @@ public sealed partial class Simulation
     private void AssignMealJourney(Tribe tribe, Agent[] members)
     {
         if (tribe.Food <= .15f || mealJourneys.Count >= 128) return;
-        var citizen = members.Where(a => a.Health > 0 && a.Energy > 0 && a.Energy < 1.2f &&
+        var candidates = members.Where(a => a.Health > 0 && a.Energy > 0 && a.Energy < 1.2f &&
             !HasWorkAssignment(a.Id) && !mealJourneys.Any(j => j.WorkerId == a.Id))
-            .OrderBy(a => a.Energy).ThenBy(a => a.Id).FirstOrDefault();
-        if (citizen is null) return;
-        // One citizen and at most four bounded searches per settlement decision.
+            .OrderBy(a => a.Energy).ThenBy(a => a.Id).Take(4).ToArray();
+        int searchBudget = 2048;
+        // One assignment; at most four citizens/four homes, sharing one expansion budget.
+        foreach (var citizen in candidates)
+        {
         foreach (var hut in structures.Where(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut &&
             mealJourneys.Count(j => j.TribeId == tribe.Id && j.Home == s.Position) < ResidentsPerHut)
             .OrderBy(s => DistanceSquared(citizen.Position, s.Position)).ThenBy(s => s.Position.Y).ThenBy(s => s.Position.X).Take(4))
         {
-            var path = GridPathfinder.Search(Terrain, citizen.Position, hut.Position, (x,y) => !HaulPassable(x,y), 512);
+            if (searchBudget <= 0) return;
+            var path = GridPathfinder.Search(Terrain, citizen.Position, hut.Position, (x,y) => !HaulPassable(x,y), Math.Min(512, searchBudget));
+            searchBudget -= path.ExpandedNodes;
             if (path.Status != PathSearchStatus.Found) continue;
             mealJourneys.Add(new() { WorkerId = citizen.Id, TribeId = tribe.Id, Home = hut.Position,
                 Route = path.Path.ToArray(), DeadlineTick = Tick + 900 });
             return;
+        }
         }
     }
 
