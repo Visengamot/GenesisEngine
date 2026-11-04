@@ -18,8 +18,19 @@ public sealed class HaulJob
     public string BlockReason { get; set; } = "";
 }
 
+public sealed record HaulSourceFailure(int TribeId, HaulResource Resource, Vec2 Source, long UntilTick);
+
 public sealed partial class Simulation
 {
+    private readonly List<HaulSourceFailure> haulSourceFailures = new();
+    public IReadOnlyList<HaulSourceFailure> HaulSourceFailures => haulSourceFailures.AsReadOnly();
+
+    private void RememberHaulFailure(int tribeId, HaulResource resource, Vec2 source)
+    {
+        haulSourceFailures.RemoveAll(f => f.TribeId == tribeId && f.Resource == resource && f.Source == source);
+        if (haulSourceFailures.Count >= 256) haulSourceFailures.RemoveAt(0);
+        haulSourceFailures.Add(new(tribeId, resource, source, Tick + 900));
+    }
     private readonly List<HaulJob> haulJobs = new();
     public IReadOnlyList<HaulJob> HaulJobs => haulJobs.AsReadOnly();
     /// <summary>Explicit abandoned cargo on death, erased worker, or destroyed home, in normalized units.</summary>
@@ -55,6 +66,20 @@ public sealed partial class Simulation
                 throw new ArgumentException("Hauling route has wrong destination.");
             if (save.Version < 11) j.DeadlineTick = Tick + 1800;
             haulJobs.Add(j);
+        }
+        if (save.Version >= 12)
+        {
+            if (save.HaulSourceFailures is null || save.HaulSourceFailures.Length > 256) throw new ArgumentException("Invalid hauling failure memory.");
+            var keys = new HashSet<(int, HaulResource, Vec2)>();
+            foreach (var f in save.HaulSourceFailures)
+            {
+                if (f is null || !Enum.IsDefined(f.Resource) || f.UntilTick < 0 || !tribes.Any(t => t.Id == f.TribeId) ||
+                    !keys.Add((f.TribeId, f.Resource, f.Source))) throw new ArgumentException("Invalid hauling failure.");
+                Guard.Position(f.Source, nameof(save));
+                if (f.Source != Clamp(f.Source) || f.Source.X != (int)f.Source.X || f.Source.Y != (int)f.Source.Y)
+                    throw new ArgumentException("Invalid failed source position.");
+                haulSourceFailures.Add(f);
+            }
         }
         LostHaulCargo = save.LostHaulCargo; DeliveredHaulCargo = save.DeliveredHaulCargo;
     }
@@ -99,13 +124,18 @@ public sealed partial class Simulation
             {
                 var p = new Vec2((int)home.Position.X + dx, (int)home.Position.Y + dy);
                 if (p != Clamp(p) || !HaulPassable((int)p.X, (int)p.Y) || AvailableResource(resource, p) < .1f ||
-                    haulJobs.Any(j => j.Cargo == 0 && j.Resource == resource && j.Source == p)) continue;
+                    haulJobs.Any(j => j.Cargo == 0 && j.Resource == resource && j.Source == p) ||
+                    haulSourceFailures.Any(f => f.TribeId == tribe.Id && f.Resource == resource && f.Source == p && f.UntilTick > Tick)) continue;
                 candidates.Add(p);
             }
         foreach (var source in candidates.OrderBy(p => DistanceSquared(worker.Position, p)).ThenBy(p => p.Y).ThenBy(p => p.X).Take(4))
         {
             var path = GridPathfinder.Search(Terrain, worker.Position, source, (x,y) => !HaulPassable(x,y), 512);
-            if (path.Status != PathSearchStatus.Found) continue;
+            if (path.Status != PathSearchStatus.Found)
+            {
+                // Worker reachability is not globally transferable; only remember a proven bad source after a commitment expires.
+                continue;
+            }
             haulJobs.Add(new() { WorkerId = worker.Id, TribeId = tribe.Id, Resource = resource,
                 Source = source, Home = home.Position, Route = path.Path.ToArray(), Stage = HaulStage.Outbound,
                 DeadlineTick = Tick + 1800 });
@@ -133,6 +163,7 @@ public sealed partial class Simulation
 
     private void StepHauling(bool cleanupOnly = false)
     {
+        haulSourceFailures.RemoveAll(f => f.UntilTick <= Tick || !tribes.Any(t => t.Id == f.TribeId));
         for (int i = haulJobs.Count - 1; i >= 0; i--)
         {
             var job = haulJobs[i];
@@ -144,6 +175,8 @@ public sealed partial class Simulation
             if (cleanupOnly) continue;
             if (worker.Energy < .35f || Tick >= job.DeadlineTick)
             {
+                if (Tick >= job.DeadlineTick && job.Stage == HaulStage.Blocked && job.BlockReason != "return-route")
+                    RememberHaulFailure(job.TribeId, job.Resource, job.Source);
                 LostHaulCargo += job.Cargo;
                 RecordEvent($"Сборщик {worker.Id}: работа отменена ({(worker.Energy < .35f ? "истощение" : "срок ожидания")}), потерян груз {job.Cargo:0.00}.");
                 haulJobs.RemoveAt(i);
