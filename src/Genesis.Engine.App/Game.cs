@@ -246,7 +246,7 @@ internal static class Game
                 int mortalityY = height - 135;
                 Text($"Умерли {mortality.LifetimeDeaths} · возраст {mortality.OldAge} · голод {mortality.EnergyDepletion}", 20, mortalityY, 11, Ink);
                 Text($"Огонь {mortality.Fire} · хищники {mortality.Predators} · климат {mortality.Climate}", 20, mortalityY + 18, 11, Muted);
-                Text($"Прочие {mortality.Other} · Доставки {simulation.HaulJobs.Count} · груз {simulation.HaulJobs.Sum(j => j.Cargo):0.00}", 20, mortalityY + 35, 10, Muted);
+                Text($"Прочие {mortality.Other} · доставок {simulation.HaulJobs.Count} · строек {simulation.ConstructionSites.Count}", 20, mortalityY + 35, 10, Muted);
                 Text("F5 — сохранить   F9 — загрузить", 20, height - 90, 13, Ink);
                 Text("R — новый мир   Home — вид целиком", 20, height - 70, 12, Muted);
                 Raylib.EndScissorMode();

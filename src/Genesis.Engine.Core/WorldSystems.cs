@@ -98,6 +98,7 @@ public sealed partial class Simulation
         {
             bool Inside(Vec2 p) { double dx = (double)p.X - position.X, dy = (double)p.Y - position.Y; return dx * dx + dy * dy <= (double)radius * radius; }
             Agents.RemoveAll(a => Inside(a.Position)); predators.RemoveAll(p => Inside(p.Position)); structures.RemoveAll(s => Inside(s.Position));
+            constructionSites.RemoveAll(s => Inside(s.Position)); // Erased investments are intentionally destroyed.
         }
     }
 

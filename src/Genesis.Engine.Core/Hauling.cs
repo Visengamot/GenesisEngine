@@ -113,7 +113,7 @@ public sealed partial class Simulation
         // At most one new assignment per decision, up to four workers / a quarter of citizens.
         int workerBudget = Math.Clamp(members.Length / 4, 1, 4);
         if (haulJobs.Count >= 128 || haulJobs.Count(j => j.TribeId == tribe.Id) >= workerBudget) return;
-        var worker = members.Where(a => a.Health > 0 && a.Energy > .8f && !haulJobs.Any(j => j.WorkerId == a.Id))
+        var worker = members.Where(a => a.Health > 0 && a.Energy > .8f && !haulJobs.Any(j => j.WorkerId == a.Id) && !constructionSites.Any(s => s.WorkerId == a.Id))
             .OrderBy(a => DistanceSquared(a.Position, home.Position)).ThenBy(a => a.Id).FirstOrDefault();
         if (worker is null) return;
         var resource = MostNeededResource(tribe);

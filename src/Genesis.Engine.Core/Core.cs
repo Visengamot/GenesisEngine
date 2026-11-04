@@ -361,7 +361,8 @@ public sealed partial class Simulation
             var steering = new Vec2(output[0], output[1]);
             float persistence = Math.Clamp(1 - dt * 1.4f, 0, 1);
             var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
-            if (TryHaulMotion(agent, dt, out var haulMotion)) motion = haulMotion;
+            if (TryConstructionMotion(agent, dt, out var buildMotion)) motion = buildMotion;
+            else if (TryHaulMotion(agent, dt, out var haulMotion)) motion = haulMotion;
             float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
             if (length > 1) motion *= 1 / length;
             // Preserve the original terrain drag, but sweep the slowed motion through every intervening
@@ -390,6 +391,7 @@ public sealed partial class Simulation
         using (Profiler?.Measure(SimulationPhase.Civilization, Agents.Count)) StepCivilization(dt);
         using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count)) RemoveDeadAgents();
         StepHauling(cleanupOnly: true);
+        StepConstruction(dt);
         using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
             SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }

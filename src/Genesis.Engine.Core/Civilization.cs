@@ -149,7 +149,7 @@ public sealed partial class Simulation
     }
     private void BuildRoad(Tribe tribe)
     {
-        if (!tribe.HasFarming || !tribe.HasWeapons || tribe.Stone < .04f || tribe.Wood < .02f || structures.Count >= 128 || structures.Count(s => s.Kind == StructureKind.Road) >= 64) return;
+        if (!tribe.HasFarming || !tribe.HasWeapons || tribe.Stone < .04f || tribe.Wood < .02f || structures.Count + constructionSites.Count >= 128 || structures.Count(s => s.Kind == StructureKind.Road) >= 64) return;
         var hut = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut);
         var farm = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Farm);
         if (hut is null || farm is null) return;
@@ -158,7 +158,7 @@ public sealed partial class Simulation
         // Lay one paid segment per decision, rather than materializing an entire free road.
         foreach (var point in path.Skip(1).SkipLast(1))
         {
-            if (structures.Any(s => s.Position == point)) continue;
+            if (structures.Any(s => s.Position == point) || constructionSites.Any(s => s.Position == point)) continue;
             tribe.Stone -= .04f; tribe.Wood -= .02f;
             structures.Add(new(StructureKind.Road, point, tribe.Id));
             return;
@@ -167,7 +167,7 @@ public sealed partial class Simulation
 
     private void Build(Tribe t, StructureKind kind, float wood, float stone, bool enabled)
     {
-        if (!enabled || structures.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
+        if (!enabled || structures.Any(s => s.TribeId == t.Id && s.Kind == kind) || constructionSites.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
         Vec2? site = null;
         int searchRadius = kind == StructureKind.Farm ? 5 : 2;
         for (int dy = -searchRadius; dy <= searchRadius && site is null; dy++)
@@ -176,19 +176,20 @@ public sealed partial class Simulation
                 var candidate = Clamp(new((int)t.Center.X + dx, (int)t.Center.Y + dy));
                 float height = Terrain.Get((int)candidate.X, (int)candidate.Y);
                 bool spaced = kind != StructureKind.Farm || !structures.Any(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut && DistanceSquared(s.Position, candidate) < 9);
-                if (spaced && height >= 0 && height < 1.5f && Environment.Get((int)candidate.X, (int)candidate.Y).Fire < .05f && !structures.Any(s => s.Position == candidate)) site = candidate;
+                if (spaced && height >= 0 && height < 1.5f && Environment.Get((int)candidate.X, (int)candidate.Y).Fire < .05f && !structures.Any(s => s.Position == candidate) && !constructionSites.Any(s => s.Position == candidate)) site = candidate;
             }
         if (site is null) return;
         // Old saves may already have all 128 slots filled by roads. Reclaim one road for housing/food.
-        if (structures.Count >= 128)
+        if (structures.Count + constructionSites.Count >= 128)
         {
             int road = structures.FindLastIndex(s => s.Kind == StructureKind.Road);
             if (road < 0) return;
             structures.RemoveAt(road);
         }
         t.Wood -= wood; t.Stone -= stone;
-        structures.Add(new(kind, site.Value, t.Id));
+        constructionSites.Add(new() { Kind = kind, Position = site.Value, TribeId = t.Id,
+            PaidWood = wood, PaidStone = stone, BlockReason = "no-worker" });
         string name = kind == StructureKind.Hut ? "хижину" : kind == StructureKind.Farm ? "ферму" : "дорогу";
-        RecordEvent($"Племя {t.Id} построило {name}.");
+        RecordEvent($"Племя {t.Id} начало строить {name}.");
     }
 }

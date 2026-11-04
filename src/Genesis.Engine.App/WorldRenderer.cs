@@ -177,6 +177,13 @@ internal static class WorldRenderer
     static void DrawActors(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport)
     {
         var time = world.Tick / 30f;
+        foreach (var site in world.ConstructionSites)
+        {
+            float px = origin.X + site.Position.X * cell, py = origin.Y + site.Position.Y * cell;
+            if (!Visible(px, py, cell * 2, viewport)) continue;
+            Rect(px, py, cell, cell, new Color(111, 81, 55, 200));
+            Rect(px, py + cell * .8f, cell * (site.Labor / site.RequiredLabor), Math.Max(1, cell * .15f), new Color(231, 196, 107, 255));
+        }
         // Roads are ground detail: never paint over a hut/farm drawn earlier.
         foreach (var structure in world.Structures.OrderBy(s => s.Kind == StructureKind.Road ? 0 : 1))
         {

@@ -14,7 +14,8 @@ public sealed partial class Simulation
         var livingIds = Agents.Select(a => a.Id).ToHashSet();
         var data = new WorldSave
         {
-            Version = 12,
+            Version = 13,
+            ConstructionSites = constructionSites.ToArray(),
             HaulSourceFailures = haulSourceFailures.ToArray(),
             HaulJobs = haulJobs.ToArray(),
             LostHaulCargo = LostHaulCargo,
@@ -86,7 +87,7 @@ public sealed partial class Simulation
         ArgumentNullException.ThrowIfNull(json);
         if (json.Length > 128_000_000) throw new ArgumentException("Snapshot exceeds size limit.", nameof(json));
         var d = JsonSerializer.Deserialize<WorldSave>(json, SaveOptions) ?? throw new ArgumentException("Empty snapshot.", nameof(json));
-        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
+        if (d.Version is not (1 or 2 or 3 or 4 or 5 or 6 or 7 or 8 or 9 or 10 or 11 or 12 or 13)) throw new NotSupportedException($"Unsupported world save version {d.Version}.");
         if (d.Version >= 6 && (d.PopulationLimit < MinimumPopulationLimit || d.PopulationLimit > AbsoluteMaximumPopulation))
             throw new ArgumentException("Invalid population limit.");
         if (d.Version >= 5)
@@ -176,6 +177,7 @@ public sealed partial class Simulation
         }
         sim.RestoreCommands(d);
         sim.RestoreHauling(d);
+        sim.RestoreConstruction(d);
         return sim;
         void Position(Vec2 p) { Guard.Position(p, nameof(json)); if (p != sim.Clamp(p)) throw new ArgumentException("Position outside world."); }
     }
@@ -193,6 +195,7 @@ public sealed class WorldSave
     public int Height { get; set; }
     public int Seed { get; set; }
     public long Tick { get; set; }
+    public ConstructionSite[] ConstructionSites { get; set; } = [];
     public HaulSourceFailure[] HaulSourceFailures { get; set; } = [];
     public HaulJob[] HaulJobs { get; set; } = [];
     public float LostHaulCargo { get; set; }
