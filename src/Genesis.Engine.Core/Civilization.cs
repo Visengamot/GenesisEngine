@@ -197,7 +197,8 @@ public sealed partial class Simulation
         var warehouse = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
         constructionSites.Add(new() { Kind = kind, Position = site.Value, TribeId = t.Id,
             PaidWood = wood, PaidStone = stone, BlockReason = "no-worker",
-            MaterialsDelivered = warehouse is null, MaterialPosition = warehouse?.Position ?? site.Value });
+            MaterialsDelivered = warehouse is null, DeliveredMaterialAmount = warehouse is null ? wood + stone : 0,
+            MaterialOrigin = warehouse?.Position ?? site.Value, MaterialPosition = warehouse?.Position ?? site.Value });
         string name = kind == StructureKind.Hut ? "хижину" : kind == StructureKind.Farm ? "ферму" : "дорогу";
         RecordEvent($"Племя {t.Id} начало строить {name}.");
     }

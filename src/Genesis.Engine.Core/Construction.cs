@@ -11,6 +11,10 @@ public sealed class ConstructionSite
     public bool MaterialsDelivered { get; set; } = true;
     public Vec2 MaterialPosition { get; set; }
     public bool MaterialsInTransit { get; set; }
+    public Vec2 MaterialOrigin { get; set; }
+    public float DeliveredMaterialAmount { get; set; }
+    public float CargoMaterialAmount { get; set; }
+    public float TotalMaterialAmount => PaidWood + PaidStone;
     public Vec2 Destination => MaterialsDelivered || MaterialsInTransit ? Position : MaterialPosition;
     public int? WorkerId { get; set; }
     public Vec2[] Route { get; set; } = [];
@@ -113,8 +117,19 @@ public sealed partial class Simulation
             if (!site.MaterialsDelivered)
             {
                 if (site.MaterialsInTransit)
-                { site.MaterialsDelivered = true; site.MaterialsInTransit = false; }
-                else site.MaterialsInTransit = true;
+                {
+                    site.DeliveredMaterialAmount = Math.Min(site.TotalMaterialAmount, site.DeliveredMaterialAmount + site.CargoMaterialAmount);
+                    site.CargoMaterialAmount = 0; site.MaterialsInTransit = false;
+                    site.MaterialsDelivered = site.DeliveredMaterialAmount >= site.TotalMaterialAmount - .000001f;
+                    site.MaterialPosition = site.MaterialOrigin;
+                }
+                else
+                {
+                    // A dropped partial load is recovered before another load is collected at the origin.
+                    if (site.CargoMaterialAmount <= 0)
+                        site.CargoMaterialAmount = Math.Min(.25f, site.TotalMaterialAmount - site.DeliveredMaterialAmount);
+                    site.MaterialsInTransit = true;
+                }
                 site.Route = []; site.Waypoint = 0; site.BlockReason = "route-needed"; site.RetryTick = Tick;
                 continue;
             }
@@ -161,7 +176,24 @@ public sealed partial class Simulation
                 (s.WorkerId is null && s.AssignmentDeadlineTick != 0)) throw new ArgumentException("Invalid construction assignment deadline.");
             if (save.Version >= 15 && ((s.MaterialsDelivered && s.MaterialsInTransit) || (s.MaterialsInTransit && s.WorkerId is null) ||
                 (!s.MaterialsDelivered && s.Labor > 0))) throw new ArgumentException("Invalid construction material state.");
-            foreach(var p in s.Route.Append(s.Position).Append(s.MaterialPosition))
+            if (save.Version < 20)
+            {
+                s.MaterialOrigin = s.MaterialPosition;
+                s.DeliveredMaterialAmount = s.MaterialsDelivered ? s.TotalMaterialAmount : 0;
+                s.CargoMaterialAmount = 0;
+                if (s.MaterialsInTransit)
+                {
+                    // Legacy saves carried the entire bundle: split it at its recorded location on recovery.
+                    s.MaterialsInTransit = false; s.Route = []; s.Waypoint = 0; s.BlockReason = "route-needed";
+                }
+            }
+            if (!float.IsFinite(s.DeliveredMaterialAmount) || !float.IsFinite(s.CargoMaterialAmount) ||
+                s.DeliveredMaterialAmount < 0 || s.CargoMaterialAmount < 0 || s.CargoMaterialAmount > .25f ||
+                s.DeliveredMaterialAmount + s.CargoMaterialAmount > s.TotalMaterialAmount + .000001f ||
+                (s.MaterialsInTransit && s.CargoMaterialAmount <= 0) ||
+                s.MaterialsDelivered != (s.DeliveredMaterialAmount >= s.TotalMaterialAmount - .000001f) ||
+                (s.MaterialsDelivered && s.CargoMaterialAmount != 0)) throw new ArgumentException("Invalid construction quantities.");
+            foreach(var p in s.Route.Append(s.Position).Append(s.MaterialPosition).Append(s.MaterialOrigin))
             { Guard.Position(p,nameof(save)); if(p!=Clamp(p)||p.X!=(int)p.X||p.Y!=(int)p.Y)throw new ArgumentException("Invalid construction route."); }
             for(int i=1;i<s.Route.Length;i++)
                 if(Math.Abs(s.Route[i].X-s.Route[i-1].X)+Math.Abs(s.Route[i].Y-s.Route[i-1].Y)!=1)throw new ArgumentException("Invalid construction adjacency.");
