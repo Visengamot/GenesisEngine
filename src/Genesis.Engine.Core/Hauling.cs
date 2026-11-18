@@ -110,6 +110,15 @@ public sealed partial class Simulation
         return needs.OrderByDescending(n => n.Score).ThenBy(n => n.Resource).Select(n => n.Resource).ToArray();
     }
 
+    private bool IsHaulSourceUnavailable(int tribeId, HaulResource resource, Vec2 source)
+    {
+        foreach (var job in haulJobs)
+            if (job.Cargo == 0 && job.Resource == resource && job.Source == source) return true;
+        foreach (var failure in haulSourceFailures)
+            if (failure.TribeId == tribeId && failure.Resource == resource && failure.Source == source && failure.UntilTick > Tick) return true;
+        return false;
+    }
+
     private void AssignHauler(Tribe tribe, Agent[] members, Structure home)
     {
         // At most one new assignment per decision, up to four workers / a quarter of citizens.
@@ -136,8 +145,7 @@ public sealed partial class Simulation
             {
                 var p = new Vec2((int)home.Position.X + dx, (int)home.Position.Y + dy);
                 if (p != Clamp(p) || !HaulPassable((int)p.X, (int)p.Y) || AvailableResource(resource, p) < .1f ||
-                    haulJobs.Any(j => j.Cargo == 0 && j.Resource == resource && j.Source == p) ||
-                    haulSourceFailures.Any(f => f.TribeId == tribe.Id && f.Resource == resource && f.Source == p && f.UntilTick > Tick)) continue;
+                    IsHaulSourceUnavailable(tribe.Id, resource, p)) continue;
                 candidates.Add(p);
             }
         foreach (var worker in reachableWorkers)
