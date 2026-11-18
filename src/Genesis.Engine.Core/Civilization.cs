@@ -57,11 +57,15 @@ public sealed partial class Simulation
     partial void StepCivilization(float dt)
     {
         civilizationClock += dt;
-        // Fixed one-second decision cadence, with bounded resource rates between decisions.
+        // Step accepts at most one second, so a valid remainder needs at most one decision.
+        // Retain fractional time instead of losing up to one tick at every decision.
         if (civilizationClock < 1) return;
-        float elapsed = civilizationClock; civilizationClock = 0;
+        const float elapsed = 1;
+        civilizationClock -= 1;
         var social = Agents.Where(a => a.Genome.Sociality >= .5f && a.Energy > 0).OrderBy(a => a.Id).ToArray();
-        var available = social.ToDictionary(a => a.Id);
+        // Citizenship survives changing social traits and generational turnover.
+        // Sociality gates founding/joining only, not continued membership.
+        var available = Agents.Where(a => a.Energy > 0).ToDictionary(a => a.Id);
         foreach (var t in tribes) t.MemberIds.RemoveAll(id => !available.ContainsKey(id));
         tribes.RemoveAll(t => t.MemberIds.Count == 0);
         // Extinct settlements cannot reserve scarce structure slots or retain stale diplomacy.
@@ -87,8 +91,14 @@ public sealed partial class Simulation
         {
             var members = t.MemberIds.Select(id => available[id]).ToArray();
             t.Age += elapsed;
-            t.Center = new(members.Average(a => a.Position.X), members.Average(a => a.Position.Y));
-            foreach (var a in members)
+            // Once built, a settlement stays at its hut rather than following wandering citizens.
+            var home = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
+            t.Center = home?.Position ?? t.Center;
+            if (home is not null)
+                using (Profiler?.Measure(SimulationPhase.HaulAssignment, members.Length)) AssignHauler(t, members, home);
+            using (Profiler?.Measure(SimulationPhase.MealAssignment, members.Length)) AssignMealJourney(t, members);
+            // Bootstrap gathering remains only until the first physical home exists.
+            foreach (var a in home is null ? members : Array.Empty<Agent>())
             {
                 int x = (int)a.Position.X, y = (int)a.Position.Y;
                 var c = Environment.Get(x, y);
@@ -110,11 +120,9 @@ public sealed partial class Simulation
             {
                 int x = (int)s.Position.X, y = (int)s.Position.Y;
                 if (s.Kind == StructureKind.Farm) Food.Set(x, y, Math.Min(1, Food.Get(x, y) + elapsed * .12f * EnvironmentGrid.Fertility(Environment.Get(x, y))));
-                if (s.Kind == StructureKind.Hut)
-                    foreach (var a in members.Where(a => DistanceSquared(a.Position, s.Position) < 4))
-                    { float meal = Math.Min(Math.Max(0, t.Food - .15f), .02f * elapsed); t.Food -= meal; a.Energy = Math.Min(3, a.Energy + meal); }
                 // Roads connect buildings by obstacle-aware routes; no free energy bonus.
             }
+            using (Profiler?.Measure(SimulationPhase.MealService, members.Length)) ServeMeals(t, members, elapsed);
             TreatExposure(t, members, elapsed);
             MaintainFirebreak(t, elapsed);
             HuntPredators(t, members, elapsed);
@@ -136,14 +144,14 @@ public sealed partial class Simulation
                     foreach (int id in a.MemberIds.Concat(b.MemberIds))
                     {
                         var member = available[id]; var enemy = a.MemberIds.Contains(id) ? b : a;
-                        if (DistanceSquared(member.Position, enemy.Center) < 16) member.Energy = Math.Max(0, member.Energy - elapsed * (enemy.HasWeapons ? .04f : .02f));
+                        if (DistanceSquared(member.Position, enemy.Center) < 16) Damage(member, elapsed * (enemy.HasWeapons ? .04f : .02f), DamageKind.Conflict);
                     }
                 }
             }
     }
     private void BuildRoad(Tribe tribe)
     {
-        if (!tribe.HasFarming || !tribe.HasWeapons || tribe.Stone < .04f || tribe.Wood < .02f || structures.Count >= 128) return;
+        if (!tribe.HasFarming || !tribe.HasWeapons || tribe.Stone < .04f || tribe.Wood < .02f || structures.Count + constructionSites.Count >= 128 || structures.Count(s => s.Kind == StructureKind.Road) >= 64) return;
         var hut = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Hut);
         var farm = structures.FirstOrDefault(s => s.TribeId == tribe.Id && s.Kind == StructureKind.Farm);
         if (hut is null || farm is null) return;
@@ -152,30 +160,46 @@ public sealed partial class Simulation
         // Lay one paid segment per decision, rather than materializing an entire free road.
         foreach (var point in path.Skip(1).SkipLast(1))
         {
-            if (structures.Any(s => s.Position == point)) continue;
+            if (structures.Any(s => s.Position == point) || constructionSites.Any(s => s.Position == point)) continue;
             tribe.Stone -= .04f; tribe.Wood -= .02f;
             structures.Add(new(StructureKind.Road, point, tribe.Id));
             return;
         }
     }
 
+    public const int ResidentsPerHut = 8;
+    public int HousingCapacity(int tribeId) => structures.Count(s => s.TribeId == tribeId && s.Kind == StructureKind.Hut) * ResidentsPerHut;
+
     private void Build(Tribe t, StructureKind kind, float wood, float stone, bool enabled)
     {
-        if (!enabled || structures.Count >= 128 || structures.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
+        int desired = kind == StructureKind.Hut ? Math.Clamp((t.MemberIds.Count + ResidentsPerHut - 1) / ResidentsPerHut, 1, 8) : 1;
+        int existing = structures.Count(s => s.TribeId == t.Id && s.Kind == kind);
+        if (!enabled || existing >= desired || constructionSites.Any(s => s.TribeId == t.Id && s.Kind == kind) || t.Wood < wood || t.Stone < stone) return;
         Vec2? site = null;
-        int searchRadius = kind == StructureKind.Farm ? 5 : 2;
+        int searchRadius = kind == StructureKind.Farm ? 5 : Math.Min(5, 2 + existing);
         for (int dy = -searchRadius; dy <= searchRadius && site is null; dy++)
             for (int dx = -searchRadius; dx <= searchRadius && site is null; dx++)
             {
                 var candidate = Clamp(new((int)t.Center.X + dx, (int)t.Center.Y + dy));
                 float height = Terrain.Get((int)candidate.X, (int)candidate.Y);
                 bool spaced = kind != StructureKind.Farm || !structures.Any(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut && DistanceSquared(s.Position, candidate) < 9);
-                if (spaced && height >= 0 && height < 1.5f && Environment.Get((int)candidate.X, (int)candidate.Y).Fire < .05f && !structures.Any(s => s.Position == candidate)) site = candidate;
+                if (spaced && height >= 0 && height < 1.5f && Environment.Get((int)candidate.X, (int)candidate.Y).Fire < .05f && !structures.Any(s => s.Position == candidate) && !constructionSites.Any(s => s.Position == candidate)) site = candidate;
             }
         if (site is null) return;
+        // Old saves may already have all 128 slots filled by roads. Reclaim one road for housing/food.
+        if (structures.Count + constructionSites.Count >= 128)
+        {
+            int road = structures.FindLastIndex(s => s.Kind == StructureKind.Road);
+            if (road < 0) return;
+            structures.RemoveAt(road);
+        }
         t.Wood -= wood; t.Stone -= stone;
-        structures.Add(new(kind, site.Value, t.Id));
+        var warehouse = structures.FirstOrDefault(s => s.TribeId == t.Id && s.Kind == StructureKind.Hut);
+        constructionSites.Add(new() { Kind = kind, Position = site.Value, TribeId = t.Id,
+            PaidWood = wood, PaidStone = stone, BlockReason = "no-worker",
+            MaterialsDelivered = warehouse is null, DeliveredMaterialAmount = warehouse is null ? wood + stone : 0,
+            MaterialOrigin = warehouse?.Position ?? site.Value, MaterialPosition = warehouse?.Position ?? site.Value });
         string name = kind == StructureKind.Hut ? "хижину" : kind == StructureKind.Farm ? "ферму" : "дорогу";
-        RecordEvent($"Племя {t.Id} построило {name}.");
+        RecordEvent($"Племя {t.Id} начало строить {name}.");
     }
 }

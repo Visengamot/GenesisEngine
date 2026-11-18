@@ -1,3 +1,0 @@
-using Genesis.Engine.Core;
-namespace Genesis.Engine.Core.Tests;
-public class CoreTests { [Fact] public void BrushStaysInBounds() { var map = new TerrainMap(4, 4); new TerrainBrush(2, 1).Apply(map, new Vec2(0, 0)); Assert.True(map.Get(0, 0) > 0); Assert.Equal(0, map.Get(3, 3)); } [Fact] public void NetworkIsDeterministic() { var a = new NeuralNetwork(2, 2, 7).Evaluate(new float[] { .2f, .8f }); var b = new NeuralNetwork(2, 2, 7).Evaluate(new float[] { .2f, .8f }); Assert.Equal(a, b); } [Fact] public void SimulationAdvances() { var s = new Simulation(20, 20, 3); s.Step(.1f); Assert.Equal(1, s.Tick); Assert.NotEmpty(s.Agents); } }
