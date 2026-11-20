@@ -339,20 +339,22 @@ public sealed partial class Simulation
             // Agents are authoritative. Keep list order for shared food and deterministic replay.
             if (agent.Health <= 0 || agent.Energy <= 0 || agent.Age >= MaximumAge) continue;
             var genome = agent.Genome;
-            var brain = agent.Brain;
             agent.Age += dt;
-            Sense(agent, inputs);
-            // Public sensor slots preserve their original meaning; the controller receives centered levels.
-            for (int i = 0; i < 4; i++) inputs[i] -= .5f;
-            inputs[8] = inputs[8] * 2 - 1;
-            inputs[9] = inputs[9] * 2 - 1;
-            brain.Evaluate(inputs, output, scratch);
-            var steering = new Vec2(output[0], output[1]);
-            float persistence = Math.Clamp(1 - dt * 1.4f, 0, 1);
-            var motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
-            if (TryConstructionMotion(agent, dt, out var buildMotion)) motion = buildMotion;
-            else if (TryHaulMotion(agent, dt, out var haulMotion)) motion = haulMotion;
-            else if (TryMealMotion(agent, dt, out var mealMotion)) motion = mealMotion;
+            // Route steering replaces the entire neural result, including when a worker waits in place.
+            if (!TryConstructionMotion(agent, dt, out var motion) &&
+                !TryHaulMotion(agent, dt, out motion) &&
+                !TryMealMotion(agent, dt, out motion))
+            {
+                Sense(agent, inputs);
+                // Public sensor slots preserve their original meaning; the controller receives centered levels.
+                for (int i = 0; i < 4; i++) inputs[i] -= .5f;
+                inputs[8] = inputs[8] * 2 - 1;
+                inputs[9] = inputs[9] * 2 - 1;
+                agent.Brain.Evaluate(inputs, output, scratch);
+                var steering = new Vec2(output[0], output[1]);
+                float persistence = Math.Clamp(1 - dt * 1.4f, 0, 1);
+                motion = agent.Heading == default ? steering : agent.Heading * persistence + steering * (1 - persistence);
+            }
             var state = MoveAndFeed(nativeMotion, agent.Position, motion, genome, agent.Energy, dt);
             agent.Heading = new(state.Vx, state.Vy);
             agent.Position = new(state.X, state.Y);
