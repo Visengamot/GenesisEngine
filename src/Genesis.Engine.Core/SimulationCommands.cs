@@ -51,7 +51,7 @@ public sealed partial class Simulation
         }
     }
 
-    private bool ExecuteCommands()
+    private void ExecuteCommands()
     {
         int consumed = 0;
         foreach (var c in pendingCommands)
@@ -71,7 +71,6 @@ public sealed partial class Simulation
             consumed++;
         }
         if (consumed > 0) pendingCommands.RemoveRange(0, consumed);
-        return consumed > 0;
     }
 
     private void RestoreCommands(WorldSave save)

@@ -272,11 +272,12 @@ public sealed partial class Simulation
     // Single-threaded reconciliation and validation never overlap; retain capacity across ticks.
     private readonly HashSet<int> scratchAgentIds = new();
     /// <summary>Number of ECS entities. Reading reconciles the public Agents list first; no mutable registry is exposed.</summary>
-    public int EntityCount { get { ValidateAgents(); SynchronizeEntities(); return entities.Count; } }
-    /// <summary>Copies current component values for an agent ID after reconciliation. Brain is a shared mutable reference, not a deep copy.</summary>
+    public int EntityCount { get { ValidateAgents(); using var profile = Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count); SynchronizeEntities(); return entities.Count; } }
+    /// <summary>Copies current component values for an agent ID after reconciliation. Brain is a shared immutable reference, not a deep copy.</summary>
     public bool TryGetEntitySnapshot(int agentId, out AgentEntitySnapshot snapshot)
     {
         ValidateAgents();
+        using var profile = Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count);
         SynchronizeEntities();
         if (!entityByAgentId.TryGetValue(agentId, out var entity)) { snapshot = default; return false; }
         snapshot = new(entities.Get<PositionComponent>(entity), entities.Get<VitalityComponent>(entity),
@@ -323,19 +324,11 @@ public sealed partial class Simulation
         if (dt == 0) return;
         using var tickProfile = Profiler?.Measure(SimulationPhase.Tick, Agents.Count);
         using (Profiler?.Measure(SimulationPhase.Validation, Agents.Count)) ValidateAgents();
-        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
-            SynchronizeEntities(); // Agent list is authoritative between phases, including external edits.
         Tick = checked(Tick + 1);
-        if (ExecuteCommands())
-        {
-            // Commands may spawn or erase entities after the initial reconciliation.
-            using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count)) SynchronizeEntities();
-        }
+        ExecuteCommands();
         foreach (var agent in Agents) agent.LethalCause = DeathCause.Other;
         using (Profiler?.Measure(SimulationPhase.Ecology, Environment.Width * Environment.Height))
             StepEnvironment(dt);
-        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
-            SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
         Span<float> inputs = stackalloc float[Agent.SensorCount];
         Span<float> output = stackalloc float[2];
         Span<float> scratch = stackalloc float[Agent.SensorCount + 2 + 128];
@@ -343,14 +336,10 @@ public sealed partial class Simulation
         using (Profiler?.Measure(SimulationPhase.LocalBehavior, Agents.Count))
         foreach (var agent in Agents)
         {
-            // Preserve public list order (food competition and replay), but perform movement against
-            // registry components by stable ID/handle. No structural ECS edits occur in this loop.
-            var entity = entityByAgentId[agent.Id];
-            ref var position = ref entities.Get<PositionComponent>(entity);
-            ref var vitality = ref entities.Get<VitalityComponent>(entity);
-            if (agent.Health <= 0 || vitality.Energy <= 0 || agent.Age >= MaximumAge) continue;
-            var genome = entities.Get<GenomeComponent>(entity).Value;
-            var brain = entities.Get<BrainComponent>(entity).Network;
+            // Agents are authoritative. Keep list order for shared food and deterministic replay.
+            if (agent.Health <= 0 || agent.Energy <= 0 || agent.Age >= MaximumAge) continue;
+            var genome = agent.Genome;
+            var brain = agent.Brain;
             agent.Age += dt;
             Sense(agent, inputs);
             // Public sensor slots preserve their original meaning; the controller receives centered levels.
@@ -364,13 +353,10 @@ public sealed partial class Simulation
             if (TryConstructionMotion(agent, dt, out var buildMotion)) motion = buildMotion;
             else if (TryHaulMotion(agent, dt, out var haulMotion)) motion = haulMotion;
             else if (TryMealMotion(agent, dt, out var mealMotion)) motion = mealMotion;
-            var state = MoveAndFeed(nativeMotion, position.Value, motion, genome, vitality.Energy, dt);
+            var state = MoveAndFeed(nativeMotion, agent.Position, motion, genome, agent.Energy, dt);
             agent.Heading = new(state.Vx, state.Vy);
-            position = new(new Vec2(state.X, state.Y));
-            vitality = vitality with { Energy = state.Energy };
-            // Explicit write-back: subsequent civilization/reproduction and public observers read Agents.
-            agent.Position = position.Value;
-            agent.Energy = vitality.Energy;
+            agent.Position = new(state.X, state.Y);
+            agent.Energy = state.Energy;
             if (agent.Energy <= 0) agent.LethalCause = DeathCause.EnergyDepletion;
         }
         using (Profiler?.Measure(SimulationPhase.DeathRemoval, Agents.Count))
@@ -382,8 +368,6 @@ public sealed partial class Simulation
         using (Profiler?.Measure(SimulationPhase.Hauling, haulJobs.Count)) StepHauling(cleanupOnly: true);
         using (Profiler?.Measure(SimulationPhase.Construction, constructionSites.Count)) StepConstruction(dt);
         using (Profiler?.Measure(SimulationPhase.MealCleanup, mealJourneys.Count)) CleanMealJourneys();
-        using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
-            SynchronizeEntities(); // Account for deaths, newborns and civilization energy edits.
     }
 
     /// <summary>Food E/W/S/N (0 outside), terrain E/W/S/N relative heights (1 for walls or impassable terrain), energy, local food, curiosity oscillator, bias. Level inputs are centered before brain evaluation.</summary>
