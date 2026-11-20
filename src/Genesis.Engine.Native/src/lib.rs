@@ -1,3 +1,4 @@
+mod motion;
 mod navigation;
 
 #[repr(C)]

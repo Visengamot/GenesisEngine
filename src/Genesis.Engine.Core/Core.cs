@@ -339,6 +339,7 @@ public sealed partial class Simulation
         Span<float> inputs = stackalloc float[Agent.SensorCount];
         Span<float> output = stackalloc float[2];
         Span<float> scratch = stackalloc float[Agent.SensorCount + 2 + 128];
+        bool nativeMotion = UseNativeAgentMotion && NativeAgentMotion.IsAvailable;
         using (Profiler?.Measure(SimulationPhase.LocalBehavior, Agents.Count))
         foreach (var agent in Agents)
         {
@@ -363,22 +364,10 @@ public sealed partial class Simulation
             if (TryConstructionMotion(agent, dt, out var buildMotion)) motion = buildMotion;
             else if (TryHaulMotion(agent, dt, out var haulMotion)) motion = haulMotion;
             else if (TryMealMotion(agent, dt, out var mealMotion)) motion = mealMotion;
-            float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
-            if (length > 1) motion *= 1 / length;
-            // Preserve the original terrain drag, but sweep the slowed motion through every intervening
-            // cell. Reflect individual velocity components at walls or blocked cells, without teleporting.
-            var target = position.Value + motion * (genome.Speed * 4 * dt);
-            float previewX = motion.X, previewY = motion.Y;
-            target = new(Reflect(target.X, Terrain.Width - 1, ref previewX),
-                Reflect(target.Y, Terrain.Height - 1, ref previewY));
-            float elevation = Terrain.Get((int)position.Value.X, (int)position.Value.Y);
-            float slope = Math.Abs(Terrain.Get((int)target.X, (int)target.Y) - elevation);
-            var moved = SweepMovement(position.Value, motion, genome.Speed * 4 * dt / (1 + slope), out var heading);
-            agent.Heading = heading;
-            position = new(moved);
-            float eaten = Food.Consume((int)moved.X, (int)moved.Y, .35f * genome.Size * dt);
-            vitality = vitality with { Energy = Math.Min(3, vitality.Energy + eaten - dt *
-                (.12f * genome.Metabolism * genome.Size + .025f * genome.Speed * length * (1 + slope))) };
+            var state = MoveAndFeed(nativeMotion, position.Value, motion, genome, vitality.Energy, dt);
+            agent.Heading = new(state.Vx, state.Vy);
+            position = new(new Vec2(state.X, state.Y));
+            vitality = vitality with { Energy = state.Energy };
             // Explicit write-back: subsequent civilization/reproduction and public observers read Agents.
             agent.Position = position.Value;
             agent.Energy = vitality.Energy;
@@ -567,6 +556,23 @@ public sealed partial class Simulation
         return height <= DeepWaterLevel || height >= MountainLevel;
     }
 
+    private AgentMotionState MoveAndFeed(bool native, Vec2 position, Vec2 motion, Genome genome, float energy, float dt)
+    {
+        if (native) return NativeAgentMotion.Step(Terrain, Food, dt, new(position, motion, genome, energy));
+        float length = MathF.Sqrt(motion.X * motion.X + motion.Y * motion.Y);
+        if (length > 1) motion *= 1 / length;
+        float speed = genome.Speed * 4 * dt;
+        var target = position + motion * speed;
+        float previewX = motion.X, previewY = motion.Y;
+        target = new(Reflect(target.X, Terrain.Width - 1, ref previewX),
+            Reflect(target.Y, Terrain.Height - 1, ref previewY));
+        float slope = Math.Abs(Terrain.Get((int)target.X, (int)target.Y) - Terrain.Get((int)position.X, (int)position.Y));
+        var moved = SweepMovement(position, motion, speed / (1 + slope), out var heading);
+        float eaten = Food.Consume((int)moved.X, (int)moved.Y, .35f * genome.Size * dt);
+        return new(moved, heading, genome, Math.Min(3, energy + eaten - dt *
+            (.12f * genome.Metabolism * genome.Size + .025f * genome.Speed * length * (1 + slope))));
+    }
+
     private Vec2 SweepMovement(Vec2 start, Vec2 velocity, float distance, out Vec2 heading)
     {
         // At most a quarter cell per sweep: even maximum speed and dt cannot skip a thin obstacle.
@@ -591,6 +597,9 @@ public sealed partial class Simulation
                 ny = dy > 0 ? MathF.BitDecrement(2 * edge - ny) : 2 * edge - ny;
                 dy = -dy;
             }
+            // A cell-edge reflection can cross the outer wall, especially on a one-cell strip.
+            nx = Reflect(nx, Terrain.Width - 1, ref dx);
+            ny = Reflect(ny, Terrain.Height - 1, ref dy);
             // A diagonal crossing into a blocked cell must also be stopped when both side cells are clear.
             if (IsImpassable((int)nx, (int)ny) && !IsImpassable((int)x, (int)y))
             {
