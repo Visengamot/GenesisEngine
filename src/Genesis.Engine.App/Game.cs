@@ -34,7 +34,13 @@ internal static class Game
         bool naturalMode = args.Contains("--benchmark-natural");
         benchmarkMode = args.Contains("--benchmark-render") || naturalMode;
         // Natural prewarm is headless; no window or renderer resources are needed yet.
-        var natural = naturalMode ? new NaturalPopulationBenchmark() : null;
+        bool useNative = naturalMode && !args.Contains("--managed-ecology") && Simulation.NativeEcologyAvailable;
+        if (naturalMode && args.Contains("--native-ecology") && !useNative)
+        {
+            Console.Error.WriteLine("Native benchmark requires the Rust library and cannot be combined with --managed-ecology.");
+            return 1;
+        }
+        var natural = naturalMode ? new NaturalPopulationBenchmark(useNative) : null;
         var naturalSimulation = natural?.CreateSimulation();
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
         Raylib.InitWindow(1480, 940, "Genesis Engine — Живой мир");

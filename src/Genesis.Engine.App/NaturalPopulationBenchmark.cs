@@ -7,12 +7,12 @@ using Raylib_cs;
 namespace Genesis.Engine.App;
 
 /// <summary>Opt-in full-window benchmark of a seeded world evolved exclusively by Simulation.Step.</summary>
-internal sealed class NaturalPopulationBenchmark
+internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
 {
     private const int PrewarmTicks = 60 * 30, WarmupFrames = 30, MeasuredFrames = 120;
     private const float SimulationDt = 1f / 30;
     private readonly DateTimeOffset started = DateTimeOffset.UtcNow;
-    private readonly List<double> steps = [], draws = [], presents = [], frames = [];
+    private readonly List<double> steps = [], draws = [], drawBeforePresent = [], presents = [], frames = [];
     private readonly List<long> allocations = [];
     private readonly List<double> refreshFrameMs = [], reusedFrameMs = [], refreshDrawMs = [], reusedDrawMs = [];
     private long frameStart, stepStart, drawStart, presentStart, allocatedStart, measuredTickStart;
@@ -25,7 +25,7 @@ internal sealed class NaturalPopulationBenchmark
 
     public Simulation CreateSimulation()
     {
-        var simulation = new Simulation(seed: 42);
+        var simulation = new Simulation(seed: 42) { UseNativeEcology = useNativeEcology };
         prewarmInitialPopulation = prewarmMinPopulation = prewarmMaxPopulation = simulation.Agents.Count;
         birthsAtStart = NextId(simulation);
         Console.WriteLine($"Natural benchmark: prewarming seed {simulation.Seed} for {PrewarmTicks} headless ticks ({PrewarmTicks / 30}s simulation), no injected agents.");
@@ -66,6 +66,7 @@ internal sealed class NaturalPopulationBenchmark
         if (frame++ < WarmupFrames) return false;
         steps.Add(stepMs);
         draws.Add(Milliseconds(drawStart, end));
+        drawBeforePresent.Add(Milliseconds(drawStart, presentStart));
         presents.Add(Milliseconds(presentStart, end));
         frames.Add(Milliseconds(frameStart, end));
         allocations.Add(allocated);
@@ -95,7 +96,8 @@ internal sealed class NaturalPopulationBenchmark
             generations = new { start = generationStart, end = Generation(simulation) },
             births = new { prewarm = birthsAtPrewarm - birthsAtStart, duringNativeWarmup = birthsAtMeasurementStart - birthsAtPrewarm, duringMeasurement = finalBirthId - birthsAtMeasurementStart, total = finalBirthId - birthsAtStart },
             simulationTicks = new { start = measuredTickStart, end = simulation.Tick, measured = simulation.Tick - measuredTickStart },
-            stepMs = Summarize(steps), drawIncludingEndDrawingMs = Summarize(draws), endDrawingMs = Summarize(presents), frameMs = Summarize(frames),
+            ecologyBackend = useNativeEcology ? "rust" : "csharp",
+            stepMs = Summarize(steps), drawBeforeEndDrawingMs = Summarize(drawBeforePresent), drawIncludingEndDrawingMs = Summarize(draws), endDrawingMs = Summarize(presents), frameMs = Summarize(frames),
             terrainRefreshFrames = new { count = refreshFrameMs.Count, frameMs = Summarize(refreshFrameMs), drawMs = Summarize(refreshDrawMs) },
             reusedTerrainFrames = new { count = reusedFrameMs.Count, frameMs = Summarize(reusedFrameMs), drawMs = Summarize(reusedDrawMs) },
             meanThroughputFps = frames.Count == 0 ? (double?)null : 1000 / frames.Average(),
@@ -104,7 +106,7 @@ internal sealed class NaturalPopulationBenchmark
             screen = new { width = Raylib.GetScreenWidth(), height = Raylib.GetScreenHeight(), renderWidth = Raylib.GetRenderWidth(), renderHeight = Raylib.GetRenderHeight() },
             world = new { width = simulation.Terrain.Width, height = simulation.Terrain.Height, seed = simulation.Seed, tribes = simulation.Tribes.Count, species = simulation.SpeciesCount }
         };
-        string path = Path.Combine(Environment.CurrentDirectory, "docs", "natural-1000-render.json");
+        string path = Path.Combine(Environment.CurrentDirectory, "docs", $"natural-1000-render-{(useNativeEcology ? "rust" : "csharp")}.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"Natural benchmark {(IsComplete ? "complete" : "interrupted")}: {path}");
