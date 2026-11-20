@@ -3,11 +3,13 @@ namespace Genesis.Engine.Core;
 public enum GodTool { Inspect, Raise, Lower, Water, Dry, Heat, Cool, Forest, Food, Stone, Fire, Predator, People, Erase }
 
 /// <summary>Normalized resources [0,1]; temperature is Celsius [-50,60]. Out-of-map reads return default.</summary>
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
 public readonly record struct EnvironmentCell(float Moisture, float Temperature, float Vegetation, float Wood, float Stone, float Fire);
 
 public sealed class EnvironmentGrid
 {
     private readonly EnvironmentCell[] cells;
+    internal Span<EnvironmentCell> Cells => cells;
     public int Width { get; }
     public int Height { get; }
     internal EnvironmentGrid(TerrainMap terrain)
@@ -104,9 +106,9 @@ public sealed partial class Simulation
     }
 
     private float[]? fireSnapshot;
-    partial void StepEnvironment(float dt)
+    private void StepEnvironmentCellsManaged(float dt, float[] fireSnapshot)
     {
-        fireSnapshot ??= new float[Environment.Width * Environment.Height];
+        Food.Renew(dt, Terrain);
         for (int y = 0; y < Environment.Height; y++)
             for (int x = 0; x < Environment.Width; x++) fireSnapshot[y * Environment.Width + x] = Environment.Get(x, y).Fire;
         float NeighborFire(int x, int y) => x < 0 || y < 0 || x >= Environment.Width || y >= Environment.Height ? 0 : fireSnapshot[y * Environment.Width + x];
@@ -137,6 +139,15 @@ public sealed partial class Simulation
                 Environment.Set(x, y, c);
                 Food.Set(x, y, Math.Clamp(Food.Get(x, y) + dt * (.025f * fertility - .02f * (1 - fertility)) - burning * .5f, 0, 1));
             }
+    }
+
+    partial void StepEnvironment(float dt)
+    {
+        fireSnapshot ??= new float[Environment.Width * Environment.Height];
+        if (UseNativeEcology && NativeEcology.IsAvailable)
+            NativeEcology.Step(Terrain, Food, Environment, fireSnapshot, dt);
+        else
+            StepEnvironmentCellsManaged(dt, fireSnapshot);
         foreach (var a in Agents)
         {
             var c = Environment.Get((int)a.Position.X, (int)a.Position.Y);

@@ -29,6 +29,7 @@ internal static class Guard
 public sealed class TerrainMap
 {
     private readonly float[] heights;
+    internal ReadOnlySpan<float> Cells => heights;
     public int Width { get; }
     public int Height { get; }
 
@@ -153,6 +154,7 @@ public readonly record struct Genome
 public sealed class FoodMap
 {
     private readonly float[] amounts;
+    internal Span<float> Cells => amounts;
     public int Width { get; }
     public int Height { get; }
     public const float Capacity = 1;
@@ -331,10 +333,7 @@ public sealed partial class Simulation
         }
         foreach (var agent in Agents) agent.LethalCause = DeathCause.Other;
         using (Profiler?.Measure(SimulationPhase.Ecology, Environment.Width * Environment.Height))
-        {
-            Food.Renew(dt, Terrain);
             StepEnvironment(dt);
-        }
         using (Profiler?.Measure(SimulationPhase.StateSynchronization, Agents.Count))
             SynchronizeEntities(); // Environmental hazards and predators edit Agent energy.
         Span<float> inputs = stackalloc float[Agent.SensorCount];

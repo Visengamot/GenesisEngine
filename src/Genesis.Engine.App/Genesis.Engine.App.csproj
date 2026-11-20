@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\Genesis.Engine.Core\Genesis.Engine.Core.csproj" />
@@ -14,5 +14,18 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
   </PropertyGroup>
+
+  <!-- Opt-in: dotnet build -p:BuildNativeEcology=true. Cargo must target the app's architecture. -->
+  <PropertyGroup Condition="'$(BuildNativeEcology)' == 'true'">
+    <NativeEcologyDir>$(MSBuildThisFileDirectory)../Genesis.Engine.Native</NativeEcologyDir>
+    <NativeEcologyFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">genesis_native.dll</NativeEcologyFile>
+    <NativeEcologyFile Condition="$([MSBuild]::IsOSPlatform('Linux'))">libgenesis_native.so</NativeEcologyFile>
+    <NativeEcologyFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">libgenesis_native.dylib</NativeEcologyFile>
+  </PropertyGroup>
+  <Target Name="BuildNativeEcologyLibrary" AfterTargets="Build" Condition="'$(BuildNativeEcology)' == 'true'">
+    <Error Condition="'$(NativeEcologyFile)' == ''" Text="Native ecology is unsupported on this build host." />
+    <Exec WorkingDirectory="$(NativeEcologyDir)" Command="cargo build --release --locked --target-dir target" />
+    <Copy SourceFiles="$(NativeEcologyDir)/target/release/$(NativeEcologyFile)" DestinationFolder="$(TargetDir)" />
+  </Target>
 
 </Project>
