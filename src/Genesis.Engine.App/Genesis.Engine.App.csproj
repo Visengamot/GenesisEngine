@@ -15,17 +15,33 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  <!-- Opt-in: dotnet build -p:BuildNativeEcology=true. Cargo must target the app's architecture. -->
+  <!-- Opt-in for build and publish: -p:BuildNativeEcology=true. Cargo must target the app's OS and architecture. -->
   <PropertyGroup Condition="'$(BuildNativeEcology)' == 'true'">
     <NativeEcologyDir>$(MSBuildThisFileDirectory)../Genesis.Engine.Native</NativeEcologyDir>
     <NativeEcologyFile Condition="$([MSBuild]::IsOSPlatform('Windows'))">genesis_native.dll</NativeEcologyFile>
     <NativeEcologyFile Condition="$([MSBuild]::IsOSPlatform('Linux'))">libgenesis_native.so</NativeEcologyFile>
     <NativeEcologyFile Condition="$([MSBuild]::IsOSPlatform('OSX'))">libgenesis_native.dylib</NativeEcologyFile>
   </PropertyGroup>
-  <Target Name="BuildNativeEcologyLibrary" AfterTargets="Build" Condition="'$(BuildNativeEcology)' == 'true'">
+  <Target Name="BuildNativeEcologyLibrary" Condition="'$(BuildNativeEcology)' == 'true'">
     <Error Condition="'$(NativeEcologyFile)' == ''" Text="Native ecology is unsupported on this build host." />
+    <Error Condition="'$(RuntimeIdentifier)' != '' and '$(RuntimeIdentifier)' != '$(NETCoreSdkRuntimeIdentifier)'"
+           Text="Cross-RID native builds are not supported. Build on a matching host or omit BuildNativeEcology." />
     <Exec WorkingDirectory="$(NativeEcologyDir)" Command="cargo build --release --locked --target-dir target" />
-    <Copy SourceFiles="$(NativeEcologyDir)/target/release/$(NativeEcologyFile)" DestinationFolder="$(TargetDir)" />
+  </Target>
+  <Target Name="CopyNativeEcologyToBuild" AfterTargets="Build" DependsOnTargets="BuildNativeEcologyLibrary"
+          Condition="'$(BuildNativeEcology)' == 'true'">
+    <Copy SourceFiles="$(NativeEcologyDir)/target/release/$(NativeEcologyFile)" DestinationFolder="$(TargetDir)" SkipUnchangedFiles="true" />
+  </Target>
+  <Target Name="IncludeNativeEcologyInPublish" AfterTargets="ComputeFilesToPublish" DependsOnTargets="BuildNativeEcologyLibrary"
+          Condition="'$(BuildNativeEcology)' == 'true'">
+    <ItemGroup>
+      <!-- The native loader expects a side-by-side file, even for single-file publishing. -->
+      <ResolvedFileToPublish Include="$(NativeEcologyDir)/target/release/$(NativeEcologyFile)">
+        <RelativePath>$(NativeEcologyFile)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+        <ExcludeFromSingleFile>true</ExcludeFromSingleFile>
+      </ResolvedFileToPublish>
+    </ItemGroup>
   </Target>
 
 </Project>
