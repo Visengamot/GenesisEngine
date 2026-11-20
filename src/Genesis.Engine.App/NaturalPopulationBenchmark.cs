@@ -14,6 +14,8 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
     private readonly DateTimeOffset started = DateTimeOffset.UtcNow;
     private readonly List<double> steps = [], draws = [], drawBeforePresent = [], presents = [], frames = [];
     private readonly List<long> allocations = [];
+    private readonly List<double> terrainDraw = [], effectsDraw = [], actorsDraw = [], worldDraw = [], hudDraw = [];
+    private long worldStart, terrainEnd, effectsEnd, actorsEnd, worldEnd;
     private readonly List<double> refreshFrameMs = [], reusedFrameMs = [], refreshDrawMs = [], reusedDrawMs = [];
     private long frameStart, stepStart, drawStart, presentStart, allocatedStart, measuredTickStart;
     private double stepMs;
@@ -57,6 +59,11 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
     public void BeginStep() => stepStart = Stopwatch.GetTimestamp();
     public void EndStep() => stepMs = Milliseconds(stepStart, Stopwatch.GetTimestamp());
     public void BeginDraw() => drawStart = Stopwatch.GetTimestamp();
+    public void BeginWorldDraw() => worldStart = terrainEnd = effectsEnd = actorsEnd = Stopwatch.GetTimestamp();
+    public void EndTerrain() => terrainEnd = Stopwatch.GetTimestamp();
+    public void EndEffects() => effectsEnd = Stopwatch.GetTimestamp();
+    public void EndActors() => actorsEnd = Stopwatch.GetTimestamp();
+    public void EndWorldDraw() => worldEnd = Stopwatch.GetTimestamp();
     public void BeginPresent() => presentStart = Stopwatch.GetTimestamp();
 
     public bool EndFrame(Simulation simulation)
@@ -67,6 +74,11 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
         steps.Add(stepMs);
         draws.Add(Milliseconds(drawStart, end));
         drawBeforePresent.Add(Milliseconds(drawStart, presentStart));
+        terrainDraw.Add(Milliseconds(worldStart, terrainEnd));
+        effectsDraw.Add(Milliseconds(terrainEnd, effectsEnd));
+        actorsDraw.Add(Milliseconds(effectsEnd, actorsEnd));
+        worldDraw.Add(Milliseconds(worldStart, worldEnd));
+        hudDraw.Add(Milliseconds(worldEnd, presentStart));
         presents.Add(Milliseconds(presentStart, end));
         frames.Add(Milliseconds(frameStart, end));
         allocations.Add(allocated);
@@ -97,6 +109,9 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
             births = new { prewarm = birthsAtPrewarm - birthsAtStart, duringNativeWarmup = birthsAtMeasurementStart - birthsAtPrewarm, duringMeasurement = finalBirthId - birthsAtMeasurementStart, total = finalBirthId - birthsAtStart },
             simulationTicks = new { start = measuredTickStart, end = simulation.Tick, measured = simulation.Tick - measuredTickStart },
             ecologyBackend = useNativeEcology ? "rust" : "csharp",
+            // CPU wall-clock intervals: Raylib flushes may execute work submitted by a previous interval.
+            renderBreakdownMs = new { world = Summarize(worldDraw), terrainCache = Summarize(terrainDraw),
+                liveEffects = Summarize(effectsDraw), actorsAndBuildings = Summarize(actorsDraw), hudAndOverlays = Summarize(hudDraw) },
             stepMs = Summarize(steps), drawBeforeEndDrawingMs = Summarize(drawBeforePresent), drawIncludingEndDrawingMs = Summarize(draws), endDrawingMs = Summarize(presents), frameMs = Summarize(frames),
             terrainRefreshFrames = new { count = refreshFrameMs.Count, frameMs = Summarize(refreshFrameMs), drawMs = Summarize(refreshDrawMs) },
             reusedTerrainFrames = new { count = reusedFrameMs.Count, frameMs = Summarize(reusedFrameMs), drawMs = Summarize(reusedDrawMs) },

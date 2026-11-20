@@ -40,7 +40,7 @@ internal static class WorldRenderer
         AgentSpriteAtlas.Unload();
     }
 
-    public static void Draw(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport)
+    public static void Draw(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport, NaturalPopulationBenchmark? benchmark = null)
     {
         LastTerrainRefresh = false;
         LastTerrainRefreshBands = 0;
@@ -102,6 +102,7 @@ internal static class WorldRenderer
             Raylib.DrawTextureRec(terrainBands[band].Texture, new Rectangle(0, 0, width, -bandHeight),
                 new Vector2(viewport.X, viewport.Y + bandY), Color.White);
         }
+        benchmark?.EndTerrain();
         // Waves and fire are deliberately live, including while terrain is reused.
         float time = world.Tick / 30f;
         for (int y = top; y < bottom; y++)
@@ -119,7 +120,9 @@ internal static class WorldRenderer
                     Raylib.DrawCircleV(new(px + cell * .45f, py + cell * (.4f + MathF.Sin(time * 9 + x) * .1f)), cell * .25f, new Color(255, 207, 71, 255));
                 }
             }
+        benchmark?.EndEffects();
         DrawActors(world, origin, cell, selectedId, viewport);
+        benchmark?.EndActors();
     }
 
     static void DrawTerrain(Simulation world, Vector2 origin, float cell, int left, int top, int right, int bottom)

@@ -173,7 +173,9 @@ internal static class Game
                 Raylib.BeginDrawing();
                 Raylib.ClearBackground(new Color(16, 23, 28, 255));
                 Raylib.BeginScissorMode((int)mapArea.X, (int)mapArea.Y, (int)mapArea.Width, (int)mapArea.Height);
-                WorldRenderer.Draw(simulation, origin, cell, selectedId, mapArea);
+                natural?.BeginWorldDraw();
+                WorldRenderer.Draw(simulation, origin, cell, selectedId, mapArea, natural);
+                natural?.EndWorldDraw();
                 if (showTerritories) WorldRenderer.DrawTerritories(simulation, origin, cell);
                 if (inside && tool != GodTool.Inspect)
                 {
