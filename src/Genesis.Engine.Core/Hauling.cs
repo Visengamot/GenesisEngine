@@ -132,7 +132,7 @@ public sealed partial class Simulation
         foreach (var worker in workers)
         {
             if (searchBudget <= 0) return;
-            var homePath = GridPathfinder.Search(Terrain, worker.Position, home.Position, (x,y) => !HaulPassable(x,y), Math.Min(512, searchBudget));
+            var homePath = SearchWorkRoute(worker.Position, home.Position, Math.Min(512, searchBudget));
             searchBudget -= homePath.ExpandedNodes;
             if (homePath.Status == PathSearchStatus.Found) reachableWorkers.Add(worker);
         }
@@ -153,7 +153,7 @@ public sealed partial class Simulation
         foreach (var source in candidates.OrderBy(p => DistanceSquared(worker.Position, p)).ThenBy(p => p.Y).ThenBy(p => p.X).Take(4))
         {
             if (searchBudget <= 0) return;
-            var path = GridPathfinder.Search(Terrain, worker.Position, source, (x,y) => !HaulPassable(x,y), Math.Min(512, searchBudget));
+            var path = SearchWorkRoute(worker.Position, source, Math.Min(512, searchBudget));
             searchBudget -= path.ExpandedNodes;
             if (path.Status != PathSearchStatus.Found)
             {
@@ -214,7 +214,7 @@ public sealed partial class Simulation
             {
                 if (Tick < job.RetryTick) continue;
                 var goal = job.Cargo > 0 ? job.Home : job.Source;
-                var path = GridPathfinder.Search(Terrain, worker.Position, goal, (x,y) => !HaulPassable(x,y), 512);
+                var path = SearchWorkRoute(worker.Position, goal, 512);
                 if (path.Status != PathSearchStatus.Found)
                 { job.BlockReason = path.Status.ToString(); job.RetryTick = Tick + 30; continue; }
                 job.Route = path.Path.ToArray(); job.Waypoint = 0;

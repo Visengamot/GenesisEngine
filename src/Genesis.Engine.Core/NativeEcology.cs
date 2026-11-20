@@ -5,19 +5,23 @@ namespace Genesis.Engine.Core;
 internal static unsafe class NativeEcology
 {
     // Load only a side-by-side library, not a same-named DLL from the search path.
-    private static readonly delegate* unmanaged[Cdecl]<nuint, nuint, float, float*, float*, EnvironmentCell*, float*, void> step = Load();
+    private static readonly nint libraryHandle = Load();
+    private static readonly delegate* unmanaged[Cdecl]<nuint, nuint, float, float*, float*, EnvironmentCell*, float*, void> step =
+        (delegate* unmanaged[Cdecl]<nuint, nuint, float, float*, float*, EnvironmentCell*, float*, void>)FindExport("genesis_step_ecology");
 
-    private static delegate* unmanaged[Cdecl]<nuint, nuint, float, float*, float*, EnvironmentCell*, float*, void> Load()
+    internal static nint FindExport(string name) =>
+        libraryHandle != 0 && NativeLibrary.TryGetExport(libraryHandle, name, out var entry) ? entry : 0;
+
+    private static nint Load()
     {
         string name = OperatingSystem.IsWindows() ? "genesis_native.dll" :
             OperatingSystem.IsMacOS() ? "libgenesis_native.dylib" : "libgenesis_native.so";
-        if (!NativeLibrary.TryLoad(Path.Combine(AppContext.BaseDirectory, name), out var library)) return null;
+        if (!NativeLibrary.TryLoad(Path.Combine(AppContext.BaseDirectory, name), out var library)) return 0;
         if (NativeLibrary.TryGetExport(library, "genesis_abi_version", out var version) &&
-            ((delegate* unmanaged[Cdecl]<uint>)version)() == 1 &&
-            NativeLibrary.TryGetExport(library, "genesis_step_ecology", out var entry))
-            return (delegate* unmanaged[Cdecl]<nuint, nuint, float, float*, float*, EnvironmentCell*, float*, void>)entry;
+            ((delegate* unmanaged[Cdecl]<uint>)version)() == 1)
+            return library;
         NativeLibrary.Free(library);
-        return null;
+        return 0;
     }
 
     internal static bool IsAvailable => step != null;

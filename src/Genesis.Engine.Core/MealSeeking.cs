@@ -40,7 +40,7 @@ public sealed partial class Simulation
             .OrderBy(s => DistanceSquared(citizen.Position, s.Position)).ThenBy(s => s.Position.Y).ThenBy(s => s.Position.X).Take(4))
         {
             if (searchBudget <= 0) return;
-            var path = GridPathfinder.Search(Terrain, citizen.Position, hut.Position, (x,y) => !HaulPassable(x,y), Math.Min(512, searchBudget));
+            var path = SearchWorkRoute(citizen.Position, hut.Position, Math.Min(512, searchBudget));
             searchBudget -= path.ExpandedNodes;
             if (path.Status != PathSearchStatus.Found) continue;
             mealJourneys.Add(new() { WorkerId = citizen.Id, TribeId = tribe.Id, Home = hut.Position,

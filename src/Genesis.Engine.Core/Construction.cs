@@ -112,7 +112,7 @@ public sealed partial class Simulation
                 string reason = "no-worker";
                 foreach (var candidate in candidates)
                 {
-                    var path = GridPathfinder.Search(Terrain, candidate.Position, site.Destination, (x,y)=>!HaulPassable(x,y), 512);
+                    var path = SearchWorkRoute(candidate.Position, site.Destination, 512);
                     if (path.Status != PathSearchStatus.Found) { reason = path.Status.ToString(); continue; }
                     worker = candidate; site.Route = path.Path.ToArray(); site.Waypoint = 0;
                     break;
@@ -123,7 +123,7 @@ public sealed partial class Simulation
             if (site.BlockReason.Length > 0)
             {
                 if (Tick < site.RetryTick) continue;
-                var path = GridPathfinder.Search(Terrain, worker.Position, site.Destination, (x,y)=>!HaulPassable(x,y), 512);
+                var path = SearchWorkRoute(worker.Position, site.Destination, 512);
                 if (path.Status != PathSearchStatus.Found)
                 {
                     if (site.MaterialsInTransit)

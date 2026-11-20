@@ -1,3 +1,5 @@
+mod navigation;
+
 #[repr(C)]
 struct Cell {
     moisture: f32,
