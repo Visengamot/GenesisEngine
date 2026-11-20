@@ -109,6 +109,7 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
             births = new { prewarm = birthsAtPrewarm - birthsAtStart, duringNativeWarmup = birthsAtMeasurementStart - birthsAtPrewarm, duringMeasurement = finalBirthId - birthsAtMeasurementStart, total = finalBirthId - birthsAtStart },
             simulationTicks = new { start = measuredTickStart, end = simulation.Tick, measured = simulation.Tick - measuredTickStart },
             ecologyBackend = useNativeEcology ? "rust" : "csharp",
+            treeRenderer = TerrainTreeAtlas.IsLoaded ? "atlas" : "legacy",
             // CPU wall-clock intervals: Raylib flushes may execute work submitted by a previous interval.
             renderBreakdownMs = new { world = Summarize(worldDraw), terrainCache = Summarize(terrainDraw),
                 liveEffects = Summarize(effectsDraw), actorsAndBuildings = Summarize(actorsDraw), hudAndOverlays = Summarize(hudDraw) },
@@ -121,7 +122,7 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
             screen = new { width = Raylib.GetScreenWidth(), height = Raylib.GetScreenHeight(), renderWidth = Raylib.GetRenderWidth(), renderHeight = Raylib.GetRenderHeight() },
             world = new { width = simulation.Terrain.Width, height = simulation.Terrain.Height, seed = simulation.Seed, tribes = simulation.Tribes.Count, species = simulation.SpeciesCount }
         };
-        string path = Path.Combine(Environment.CurrentDirectory, "docs", $"natural-1000-render-{(useNativeEcology ? "rust" : "csharp")}.json");
+        string path = Path.Combine(Environment.CurrentDirectory, "docs", $"natural-1000-render-{(useNativeEcology ? "rust" : "csharp")}-{(TerrainTreeAtlas.IsLoaded ? "atlas" : "legacy")}.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"Natural benchmark {(IsComplete ? "complete" : "interrupted")}: {path}");

@@ -17,6 +17,7 @@ internal static class WorldRenderer
     static Rectangle cachedViewport;
     static bool terrainDirty = true;
     static int nextBand;
+    internal static bool UseTreeAtlas { get; set; } = true;
 
     // Per-Draw diagnostic: lets native benchmarks separate cache refresh from reuse.
     internal static bool LastTerrainRefresh { get; private set; }
@@ -38,6 +39,7 @@ internal static class WorldRenderer
         LastTerrainRefresh = false;
         LastTerrainRefreshBands = 0;
         AgentSpriteAtlas.Unload();
+        TerrainTreeAtlas.Unload();
     }
 
     public static void Draw(Simulation world, Vector2 origin, float cell, int selectedId, Rectangle viewport, NaturalPopulationBenchmark? benchmark = null)
@@ -69,6 +71,15 @@ internal static class WorldRenderer
         // Brush, camera, viewport and world changes refresh every band immediately.
         // Otherwise refresh one band for each new simulation tick, not every display frame.
         bool refreshOne = !refreshAll && world.Tick != cachedTick;
+        bool useAtlas = UseTreeAtlas && (refreshAll || refreshOne) && TerrainTreeAtlas.EnsureLoaded();
+        Texture2D shapesTexture = default;
+        Rectangle shapesRectangle = default;
+        if (useAtlas)
+        {
+            shapesTexture = Raylib.GetShapesTexture();
+            shapesRectangle = Raylib.GetShapesTextureRectangle();
+            TerrainTreeAtlas.UseForShapes();
+        }
         for (int band = 0; band < terrainBands.Length; band++)
         {
             int bandY = band * height / terrainBands.Length;
@@ -81,11 +92,12 @@ internal static class WorldRenderer
             Raylib.BeginScissorMode(0, 0, width, bandHeight);
             int bandTop = Math.Clamp((int)MathF.Floor((viewport.Y + bandY - origin.Y) / cell) - 2, 0, world.Terrain.Height);
             int bandBottom = Math.Clamp((int)MathF.Ceiling((viewport.Y + bandY + bandHeight - origin.Y) / cell) + 2, 0, world.Terrain.Height);
-            DrawTerrain(world, origin - new Vector2(viewport.X, viewport.Y + bandY), cell, left, bandTop, right, bandBottom);
+            DrawTerrain(world, origin - new Vector2(viewport.X, viewport.Y + bandY), cell, left, bandTop, right, bandBottom, useAtlas);
             Raylib.EndScissorMode();
             Raylib.EndTextureMode();
             LastTerrainRefreshBands++;
         }
+        if (useAtlas) Raylib.SetShapesTexture(shapesTexture, shapesRectangle);
         LastTerrainRefresh = LastTerrainRefreshBands != 0;
         if (refreshAll || refreshOne)
         {
@@ -125,9 +137,8 @@ internal static class WorldRenderer
         benchmark?.EndActors();
     }
 
-    static void DrawTerrain(Simulation world, Vector2 origin, float cell, int left, int top, int right, int bottom)
+    static void DrawTerrain(Simulation world, Vector2 origin, float cell, int left, int top, int right, int bottom, bool useAtlas)
     {
-        var time = world.Tick / 30f;
         for (int y = top; y < bottom; y++)
             for (int x = left; x < right; x++)
             {
@@ -158,10 +169,14 @@ internal static class WorldRenderer
                     }
                     else if (environment.Vegetation > .4f && Hash(x, y) % 3 == 0)
                     {
-                        Rect(px + cell * .45f, py + cell * .45f, cell * .18f, cell * .6f, new Color(77, 58, 38, 255));
-                        Raylib.DrawCircleV(new(px + cell * .57f, py + cell * .52f), cell * .44f, new Color(31, 65, 45, 220));
-                        Raylib.DrawCircleV(new(px + cell * .4f, py + cell * .35f), cell * .34f, new Color(43 + noise, 91 + noise, 50, 255));
-                        Rect(px + cell * .26f, py + cell * .2f, cell * .22f, cell * .16f, new Color(91, 126, 64, 255));
+                        if (useAtlas) TerrainTreeAtlas.Draw(px, py, cell, noise);
+                        else
+                        {
+                            Rect(px + cell * .45f, py + cell * .45f, cell * .18f, cell * .6f, new Color(77, 58, 38, 255));
+                            Raylib.DrawCircleV(new(px + cell * .57f, py + cell * .52f), cell * .44f, new Color(31, 65, 45, 220));
+                            Raylib.DrawCircleV(new(px + cell * .4f, py + cell * .35f), cell * .34f, new Color(43 + noise, 91 + noise, 50, 255));
+                            Rect(px + cell * .26f, py + cell * .2f, cell * .22f, cell * .16f, new Color(91, 126, 64, 255));
+                        }
                     }
                     else if (world.Food.Get(x, y) > .65f && Hash(x, y) % 4 == 0)
                     {

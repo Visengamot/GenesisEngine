@@ -40,6 +40,7 @@ internal static class Game
             Console.Error.WriteLine("Native benchmark requires the Rust library and cannot be combined with --managed-ecology.");
             return 1;
         }
+        WorldRenderer.UseTreeAtlas = !args.Contains("--legacy-trees");
         var natural = naturalMode ? new NaturalPopulationBenchmark(useNative) : null;
         var naturalSimulation = natural?.CreateSimulation();
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
