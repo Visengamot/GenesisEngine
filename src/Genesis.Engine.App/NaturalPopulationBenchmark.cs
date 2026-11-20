@@ -7,7 +7,7 @@ using Raylib_cs;
 namespace Genesis.Engine.App;
 
 /// <summary>Opt-in full-window benchmark of a seeded world evolved exclusively by Simulation.Step.</summary>
-internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
+internal sealed class NaturalPopulationBenchmark(bool useNativeEcology, bool panCamera)
 {
     private const int PrewarmTicks = 60 * 30, WarmupFrames = 30, MeasuredFrames = 120;
     private const float SimulationDt = 1f / 30;
@@ -23,7 +23,11 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
     private int populationStart, populationMin, populationMax, generationStart;
     private long birthsAtStart, birthsAtPrewarm, birthsAtMeasurementStart;
     private int[] collectionsStart = [];
+    private readonly int[] refreshedBandCounts = new int[WorldRenderer.TerrainRefreshTicks + 1];
     public bool IsComplete => frames.Count == MeasuredFrames;
+    public System.Numerics.Vector2 CameraOffset => panCamera
+        ? new(MathF.Sin(frame * .045f) * 96, MathF.Sin(frame * .071f) * 55)
+        : default;
 
     public Simulation CreateSimulation()
     {
@@ -82,6 +86,7 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
         presents.Add(Milliseconds(presentStart, end));
         frames.Add(Milliseconds(frameStart, end));
         allocations.Add(allocated);
+        refreshedBandCounts[WorldRenderer.LastTerrainRefreshBands]++;
         var frameBucket = WorldRenderer.LastTerrainRefresh ? refreshFrameMs : reusedFrameMs;
         var drawBucket = WorldRenderer.LastTerrainRefresh ? refreshDrawMs : reusedDrawMs;
         frameBucket.Add(frames[^1]);
@@ -93,7 +98,9 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
 
     public void Save(Simulation simulation)
     {
-        long finalBirthId = NextId(simulation);
+        string finalSave = simulation.SaveJson();
+        using var document = JsonDocument.Parse(finalSave);
+        long finalBirthId = document.RootElement.GetProperty("NextId").GetInt64();
         var report = new
         {
             mode = "--benchmark-natural", completed = IsComplete, startedUtc = started, finishedUtc = DateTimeOffset.UtcNow,
@@ -108,6 +115,9 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
             generations = new { start = generationStart, end = Generation(simulation) },
             births = new { prewarm = birthsAtPrewarm - birthsAtStart, duringNativeWarmup = birthsAtMeasurementStart - birthsAtPrewarm, duringMeasurement = finalBirthId - birthsAtMeasurementStart, total = finalBirthId - birthsAtStart },
             simulationTicks = new { start = measuredTickStart, end = simulation.Tick, measured = simulation.Tick - measuredTickStart },
+            camera = panCamera ? "pan" : "static",
+            refreshedBandCounts,
+            finalWorldSha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(finalSave))),
             ecologyBackend = useNativeEcology ? "rust" : "csharp",
             treeRenderer = TerrainTreeAtlas.IsLoaded ? "atlas" : "legacy",
             // CPU wall-clock intervals: Raylib flushes may execute work submitted by a previous interval.
@@ -122,7 +132,7 @@ internal sealed class NaturalPopulationBenchmark(bool useNativeEcology)
             screen = new { width = Raylib.GetScreenWidth(), height = Raylib.GetScreenHeight(), renderWidth = Raylib.GetRenderWidth(), renderHeight = Raylib.GetRenderHeight() },
             world = new { width = simulation.Terrain.Width, height = simulation.Terrain.Height, seed = simulation.Seed, tribes = simulation.Tribes.Count, species = simulation.SpeciesCount }
         };
-        string path = Path.Combine(Environment.CurrentDirectory, "docs", $"natural-1000-render-{(useNativeEcology ? "rust" : "csharp")}-{(TerrainTreeAtlas.IsLoaded ? "atlas" : "legacy")}.json");
+        string path = Path.Combine(Environment.CurrentDirectory, "docs", $"natural-1000-render-{(useNativeEcology ? "rust" : "csharp")}-{(TerrainTreeAtlas.IsLoaded ? "atlas" : "legacy")}{(panCamera ? "-pan" : "")}.json");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true }));
         Console.WriteLine($"Natural benchmark {(IsComplete ? "complete" : "interrupted")}: {path}");

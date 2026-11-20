@@ -41,7 +41,7 @@ internal static class Game
             return 1;
         }
         WorldRenderer.UseTreeAtlas = !args.Contains("--legacy-trees");
-        var natural = naturalMode ? new NaturalPopulationBenchmark(useNative) : null;
+        var natural = naturalMode ? new NaturalPopulationBenchmark(useNative, args.Contains("--benchmark-pan")) : null;
         var naturalSimulation = natural?.CreateSimulation();
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
         Raylib.InitWindow(1480, 940, "Genesis Engine — Живой мир");
@@ -139,6 +139,7 @@ internal static class Game
                     Raylib.IsMouseButtonReleased(MouseButton.Left), onMap,
                     brush && (Raylib.IsKeyDown(KeyboardKey.LeftShift) || Raylib.IsKeyDown(KeyboardKey.RightShift)));
                 pan += gesture.PanDelta;
+                if (natural != null) pan = natural.CameraOffset;
                 var origin = MapOrigin();
                 var point = new Vec2((mouse.X - origin.X) / cell, (mouse.Y - origin.Y) / cell);
                 bool inside = onMap && point.X >= 0 && point.Y >= 0 && point.X < simulation.Terrain.Width && point.Y < simulation.Terrain.Height;
