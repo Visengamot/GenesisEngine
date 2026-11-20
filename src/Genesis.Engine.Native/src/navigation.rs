@@ -1,4 +1,9 @@
-use std::{cell::RefCell, cmp::Ordering, collections::{BinaryHeap, HashMap}};
+use std::{
+    cell::RefCell,
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap, hash_map::Entry as NodeEntry},
+    hash::{BuildHasherDefault, Hasher},
+};
 use super::Cell;
 
 struct Entry { node: usize, score: f32, order: u32 }
@@ -12,8 +17,22 @@ impl PartialEq for Entry { fn eq(&self, other: &Self) -> bool { self.cmp(other) 
 impl Eq for Entry {}
 
 struct Node { cost: f32, previous: usize, closed: bool }
+
+// Only engine-generated cell indices reach this map. Mix both halves of the hash
+// for sequential indices, without the cost of a general-purpose keyed hash.
 #[derive(Default)]
-struct Scratch { nodes: HashMap<usize, Node>, open: BinaryHeap<Entry> }
+struct CellHasher(u64);
+impl Hasher for CellHasher {
+    fn finish(&self) -> u64 { self.0 }
+    fn write(&mut self, _: &[u8]) { unreachable!("cell keys use write_usize") }
+    fn write_usize(&mut self, index: usize) {
+        self.0 = (index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15).rotate_left(32);
+    }
+}
+type Nodes = HashMap<usize, Node, BuildHasherDefault<CellHasher>>;
+
+#[derive(Default)]
+struct Scratch { nodes: Nodes, open: BinaryHeap<Entry> }
 thread_local! { static SCRATCH: RefCell<Scratch> = RefCell::new(Scratch::default()); }
 
 /// The input buffers contain width * height elements. `route` has room for
@@ -66,8 +85,15 @@ unsafe extern "C" fn genesis_search_work_route(
                 let next = ny * width + nx;
                 if !passable(next) { continue; }
                 let next_cost = cost + 1.0 + (terrain[next] - terrain[node]).abs();
-                if nodes.get(&next).is_some_and(|old| old.closed || old.cost <= next_cost) { continue; }
-                nodes.insert(next, Node { cost: next_cost, previous: node, closed: false });
+                let candidate = Node { cost: next_cost, previous: node, closed: false };
+                match nodes.entry(next) {
+                    NodeEntry::Occupied(mut entry) => {
+                        let old = entry.get_mut();
+                        if old.closed || old.cost <= next_cost { continue; }
+                        *old = candidate;
+                    }
+                    NodeEntry::Vacant(entry) => { entry.insert(candidate); }
+                }
                 open.push(Entry { node: next, score: next_cost + tx.abs_diff(nx) as f32 + ty.abs_diff(ny) as f32, order });
                 order += 1;
             }
