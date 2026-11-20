@@ -54,6 +54,16 @@ public sealed partial class Simulation
 {
     public const double SpeciesCompatibilityThreshold = .65;
     private Agent[] classifiedAgents = [];
+    private int[] classifiedLineageIds = [];
+
+    private void RememberClassifiedPopulation()
+    {
+        classifiedAgents = Agents.ToArray();
+        if (classifiedLineageIds.Length != classifiedAgents.Length)
+            classifiedLineageIds = new int[classifiedAgents.Length];
+        for (int i = 0; i < classifiedAgents.Length; i++)
+            classifiedLineageIds[i] = classifiedAgents[i].SpeciesId;
+    }
     private readonly List<SpeciesLineage> lineages = [];
     private long nextSpeciesId;
     private IReadOnlyList<SpeciesSummary> species = Array.Empty<SpeciesSummary>();
@@ -80,13 +90,13 @@ public sealed partial class Simulation
         // A directly replaced population must not inherit unrelated old representatives.
         // Existing members keep their own compatible lineage even if lineages overlap.
         var survivors = new HashSet<Agent>(Agents);
-        var previousMembers = new Dictionary<Agent, int>();
+        var previousMembers = new Dictionary<Agent, int>(classifiedAgents.Length);
         var survivingIds = new HashSet<int>();
-        foreach (var agent in classifiedAgents)
-            if (survivors.Contains(agent))
+        for (int i = 0; i < classifiedAgents.Length; i++)
+            if (survivors.Contains(classifiedAgents[i]))
             {
-                previousMembers.Add(agent, agent.SpeciesId);
-                survivingIds.Add(agent.SpeciesId);
+                previousMembers.Add(classifiedAgents[i], classifiedLineageIds[i]);
+                survivingIds.Add(classifiedLineageIds[i]);
             }
         if (classifiedAgents.Length != 0)
             for (int i = lineages.Count - 1; i >= 0; i--)
@@ -94,22 +104,21 @@ public sealed partial class Simulation
         var counts = new Dictionary<int, int>();
         foreach (var agent in Agents.OrderBy(a => a.Id))
         {
-            SpeciesLineage? lineage = null;
+            // The private snapshot owns the prior membership, independent of the public agent list.
+            // Both brains are immutable and the surviving lineage's representative is unchanged.
             if (previousMembers.TryGetValue(agent, out int oldId))
-                foreach (var candidate in lineages)
-                    if (candidate.Id == oldId &&
-                        GeneticCompatibility.Distance(agent.Brain, candidate.Representative) <= SpeciesCompatibilityThreshold)
-                    {
-                        lineage = candidate;
-                        break;
-                    }
-            if (lineage is null)
-                foreach (var candidate in lineages)
-                    if (GeneticCompatibility.Distance(agent.Brain, candidate.Representative) <= SpeciesCompatibilityThreshold)
-                    {
-                        lineage = candidate;
-                        break;
-                    }
+            {
+                agent.SpeciesId = oldId;
+                counts[oldId] = counts.GetValueOrDefault(oldId) + 1;
+                continue;
+            }
+            SpeciesLineage? lineage = null;
+            foreach (var candidate in lineages)
+                if (GeneticCompatibility.Distance(agent.Brain, candidate.Representative) <= SpeciesCompatibilityThreshold)
+                {
+                    lineage = candidate;
+                    break;
+                }
             if (lineage is null)
             {
                 // Preserve historical representative IDs for externally supplied agents and legacy saves.
@@ -129,7 +138,7 @@ public sealed partial class Simulation
         for (int i = 0; i < summaries.Length; i++)
             summaries[i] = new SpeciesSummary(lineages[i].Id, counts[lineages[i].Id]);
         species = Array.AsReadOnly(summaries);
-        classifiedAgents = Agents.ToArray();
+        RememberClassifiedPopulation();
     }
 
     private SpeciesLineageSave[] SaveLineages() => lineages.Select(l =>
@@ -157,6 +166,7 @@ public sealed partial class Simulation
         }
         nextSpeciesId = next;
         classifiedAgents = [];
+        classifiedLineageIds = [];
     }
 
     /// <summary>Bounded online reproductive score, not a measured task fitness or generational NEAT objective.

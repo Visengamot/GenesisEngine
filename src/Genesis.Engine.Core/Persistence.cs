@@ -145,7 +145,7 @@ public sealed partial class Simulation
                     throw new ArgumentException("Invalid saved species membership.");
                 agent.SpeciesId = saved.SpeciesId;
             }
-            sim.classifiedAgents = sim.Agents.ToArray();
+            sim.RememberClassifiedPopulation();
             // Rebuild summary from the validated saved memberships without reassigning overlap cases.
             var members = sim.Agents.GroupBy(a => a.SpeciesId).ToDictionary(g => g.Key, g => g.Count());
             if (members.Count != sim.lineages.Count || sim.lineages.Any(l => !members.ContainsKey(l.Id)))
